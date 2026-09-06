@@ -295,7 +295,17 @@ namespace Weave.Runtime
 
         public CharacterState GetCharacter(string characterId)
         {
-            return Characters[characterId];
+            if (string.IsNullOrWhiteSpace(characterId))
+            {
+                throw new ArgumentException("Character ID must be non-empty when resolving run-state characters.", nameof(characterId));
+            }
+
+            if (!Characters.TryGetValue(characterId, out var characterState) || characterState == null)
+            {
+                throw new KeyNotFoundException($"RunState does not contain a character with ID '{characterId}'.");
+            }
+
+            return characterState;
         }
 
         public bool HasWorldFlag(string flagId)

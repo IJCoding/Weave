@@ -123,6 +123,13 @@ namespace Weave.Presentation
             session.SimulationLogEntryAdded += HandleSimulationLogEntryAdded;
             AuthoredVillageLocation.Clicked += HandleLocationClicked;
             session.StartRun(controlledCharacter);
+            if (!session.IsRunInitialized || session.RunState == null)
+            {
+                Debug.LogError("Prototype run failed to initialize. See earlier errors for setup details.", this);
+                enabled = false;
+                return;
+            }
+
             RefreshPresentation();
             UpdateCharacterVisuals();
             RebuildActivityConsoleFromSession();
@@ -312,6 +319,11 @@ namespace Weave.Presentation
         private void RefreshPresentation()
         {
             if (session == null || session.RunState == null || controlledCharacter == null || suppressRefresh)
+            {
+                return;
+            }
+
+            if (!session.IsRunInitialized)
             {
                 return;
             }

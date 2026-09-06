@@ -79,21 +79,74 @@ namespace Weave.Simulation
             IEnumerable<CharacterDefinition> characters,
             CharacterDefinition controlledCharacter)
         {
+            if (calendar == null)
+            {
+                throw new System.InvalidOperationException("Cannot create initial run state without a calendar definition.");
+            }
+
+            if (controlledCharacter == null)
+            {
+                throw new System.InvalidOperationException("Cannot create initial run state without a controlled character definition.");
+            }
+
+            if (string.IsNullOrWhiteSpace(controlledCharacter.CharacterId))
+            {
+                throw new System.InvalidOperationException("Cannot create initial run state because the controlled character ID is empty.");
+            }
+
             var runState = new RunState
             {
-                ControlledCharacterId = controlledCharacter != null ? controlledCharacter.CharacterId : string.Empty,
+                ControlledCharacterId = controlledCharacter.CharacterId,
                 Calendar = new CalendarState(calendar.StartingYear),
                 DayTimer = new DayTimerState(GetConfiguredDayDuration(calendar))
             };
 
+            var locationIds = new HashSet<string>();
             foreach (var location in locations)
             {
+                if (location == null)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(location.LocationId))
+                {
+                    throw new System.InvalidOperationException("Cannot create initial run state because a location definition has an empty Location ID.");
+                }
+
+                if (!locationIds.Add(location.LocationId))
+                {
+                    throw new System.InvalidOperationException($"Cannot create initial run state because location ID '{location.LocationId}' is duplicated.");
+                }
+
                 runState.Locations[location.LocationId] = new LocationState(location.LocationId);
             }
 
+            var characterIds = new HashSet<string>();
             foreach (var character in characters)
             {
+                if (character == null)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(character.CharacterId))
+                {
+                    throw new System.InvalidOperationException("Cannot create initial run state because a character definition has an empty Character ID.");
+                }
+
+                if (!characterIds.Add(character.CharacterId))
+                {
+                    throw new System.InvalidOperationException($"Cannot create initial run state because character ID '{character.CharacterId}' is duplicated.");
+                }
+
                 runState.Characters[character.CharacterId] = new CharacterState(character);
+            }
+
+            if (!runState.Characters.ContainsKey(controlledCharacter.CharacterId))
+            {
+                throw new System.InvalidOperationException(
+                    $"Cannot create initial run state because controlled character '{controlledCharacter.CharacterId}' was not registered.");
             }
 
             return runState;
