@@ -130,35 +130,6 @@ namespace Weave.Presentation
             UpdateCharacterMarkers();
         }
 
-        private void OnDestroy()
-        {
-            if (session != null)
-            {
-                session.StateChanged -= RefreshPresentation;
-                session.SimulationAdvanced -= HandleSimulationAdvanced;
-            }
-
-            if (runtimeVisualRoot != null)
-            {
-                DestroyObject(runtimeVisualRoot);
-            }
-
-            if (runtimeCanvas != null)
-            {
-                DestroyObject(runtimeCanvas.gameObject);
-            }
-
-            DestroySprite(squareSprite);
-            DestroySprite(circleSprite);
-
-            foreach (var runtimeDefinition in runtimeDefinitions)
-            {
-                DestroyObject(runtimeDefinition);
-            }
-
-            runtimeDefinitions.Clear();
-        }
-
         private void ConfigureCamera()
         {
             if (Camera.main == null)
@@ -212,7 +183,7 @@ namespace Weave.Presentation
 
         private void BuildRuntimeUi()
         {
-            uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             EnsureEventSystem();
 
             var canvasObject = new GameObject("Prototype Showcase Canvas");
@@ -847,19 +818,6 @@ namespace Weave.Presentation
             }
         }
 
-        private void ClearPopupChoices()
-        {
-            if (popupChoiceContainer == null)
-            {
-                return;
-            }
-
-            for (var index = popupChoiceContainer.childCount - 1; index >= 0; index--)
-            {
-                DestroyObject(popupChoiceContainer.GetChild(index).gameObject);
-            }
-        }
-
         private void CreatePopupChoice(PopupChoice choice)
         {
             CreateButton(popupChoiceContainer, choice.Label, choice.Label, choice.OnSelected);
@@ -1393,7 +1351,7 @@ namespace Weave.Presentation
 
         private void EnsureEventSystem()
         {
-            if (FindObjectOfType<EventSystem>() != null)
+            if (UnityEngine.Object.FindAnyObjectByType<EventSystem>() != null)
             {
                 return;
             }
@@ -1403,10 +1361,9 @@ namespace Weave.Presentation
 #if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
 #else
-            eventSystemObject.AddComponent<StandaloneInputModule>();
+    eventSystemObject.AddComponent<StandaloneInputModule>();
 #endif
         }
-
         private RectTransform CreateRect(string name, Transform parent)
         {
             var gameObject = new GameObject(name, typeof(RectTransform));
@@ -1533,7 +1490,60 @@ namespace Weave.Presentation
             }
         }
 
-        private static void DestroyObject(UnityEngine.Object target)
+        private void OnDestroy()
+        {
+            if (session != null)
+            {
+                session.StateChanged -= RefreshPresentation;
+                session.SimulationAdvanced -= HandleSimulationAdvanced;
+            }
+
+            if (runtimeVisualRoot != null)
+            {
+                DestroyUnityObject(runtimeVisualRoot);
+            }
+
+            if (runtimeCanvas != null)
+            {
+                DestroyUnityObject(runtimeCanvas.gameObject);
+            }
+
+            DestroySprite(squareSprite);
+            DestroySprite(circleSprite);
+
+            foreach (var runtimeDefinition in runtimeDefinitions)
+            {
+                DestroyUnityObject(runtimeDefinition);
+            }
+
+            runtimeDefinitions.Clear();
+        }
+        private static void DestroySprite(Sprite sprite)
+        {
+            if (sprite == null)
+            {
+                return;
+            }
+
+            DestroyUnityObject(sprite.texture);
+            DestroyUnityObject(sprite);
+        }
+
+
+        private void ClearPopupChoices()
+        {
+            if (popupChoiceContainer == null)
+            {
+                return;
+            }
+
+            for (var index = popupChoiceContainer.childCount - 1; index >= 0; index--)
+            {
+                DestroyUnityObject(popupChoiceContainer.GetChild(index).gameObject);
+            }
+        }
+
+        private static void DestroyUnityObject(UnityEngine.Object target)
         {
             if (target == null)
             {
@@ -1542,24 +1552,12 @@ namespace Weave.Presentation
 
             if (Application.isPlaying)
             {
-                Destroy(target);
+                UnityEngine.Object.Destroy(target);
                 return;
             }
 
-            DestroyImmediate(target);
+            UnityEngine.Object.DestroyImmediate(target);
         }
-
-        private static void DestroySprite(Sprite sprite)
-        {
-            if (sprite == null)
-            {
-                return;
-            }
-
-            DestroyObject(sprite.texture);
-            DestroyObject(sprite);
-        }
-
         private T Track<T>(T target)
             where T : UnityEngine.Object
         {

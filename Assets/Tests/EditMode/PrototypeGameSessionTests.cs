@@ -76,7 +76,9 @@ namespace Weave.Tests.EditMode
                 Object.DestroyImmediate(gameObject);
             }
 
-            [Test]
+        }
+
+        [Test]
             public void AdvanceSimulation_DoesNotProgressWhilePaused()
             {
                 var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
@@ -114,7 +116,6 @@ namespace Weave.Tests.EditMode
                     Object.DestroyImmediate(gameObject);
                 }
             }
-        }
 
         private static CharacterDefinition CreateCharacter(string id, string displayName, LocationDefinition home)
         {

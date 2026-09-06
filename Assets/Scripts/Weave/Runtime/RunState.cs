@@ -70,7 +70,7 @@ namespace Weave.Runtime
     public sealed class LocationState
     {
         public string LocationId;
-        public HashSet<string> Flags = new HashSet<string>();
+        [NonSerialized] public HashSet<string> Flags = new HashSet<string>();
 
         public LocationState(string locationId)
         {
@@ -91,7 +91,7 @@ namespace Weave.Runtime
         public float TravelDurationSeconds;
         public float TaskElapsedSeconds;
         public float TaskDurationSeconds;
-        public Dictionary<string, int> Resources = new Dictionary<string, int>();
+        [NonSerialized] public Dictionary<string, int> Resources = new Dictionary<string, int>();
 
         public CharacterState(CharacterDefinition definition)
         {
@@ -209,9 +209,9 @@ namespace Weave.Runtime
         public string ControlledCharacterId;
         public CalendarState Calendar;
         public DayTimerState DayTimer;
-        public Dictionary<string, CharacterState> Characters = new Dictionary<string, CharacterState>();
-        public Dictionary<string, LocationState> Locations = new Dictionary<string, LocationState>();
-        public HashSet<string> WorldFlags = new HashSet<string>();
+        [NonSerialized] public Dictionary<string, CharacterState> Characters = new Dictionary<string, CharacterState>();
+        [NonSerialized] public Dictionary<string, LocationState> Locations = new Dictionary<string, LocationState>();
+        [NonSerialized] public HashSet<string> WorldFlags = new HashSet<string>();
 
         public CharacterState GetCharacter(string characterId)
         {

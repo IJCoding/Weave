@@ -11,8 +11,8 @@ namespace Weave.Presentation
         [Serializable]
         private sealed class CharacterMarker
         {
-            public CharacterDefinition Character;
-            public SpriteRenderer MarkerRenderer;
+            public CharacterDefinition Character = null!;
+            public SpriteRenderer MarkerRenderer = null!;
         }
 
         [SerializeField] private PrototypeGameSession session;
