@@ -277,7 +277,9 @@ namespace Weave.Presentation
 
             foreach (var npc in worldRegistry.Npcs)
             {
-                if (npc == null || string.IsNullOrWhiteSpace(npc.CharacterId))
+                if (npc == null ||
+                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
+                    (controlledCharacter != null && npc.CharacterId == controlledCharacter.CharacterId))
                 {
                     continue;
                 }

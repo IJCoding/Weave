@@ -180,6 +180,11 @@ namespace Weave.World
 
         private void ApplyAuthoringVisuals()
         {
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
             if (visualRenderer != null)
             {
                 visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();

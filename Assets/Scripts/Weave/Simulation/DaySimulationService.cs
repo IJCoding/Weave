@@ -375,6 +375,33 @@ namespace Weave.Simulation
             }
 
             EnsureDayTimer(runState, calendar);
+            return AdvanceSimulationInternal(runState, calendar, controlledCharacter, tasks, locations, simulationSeconds);
+        }
+
+        public SimulationAdvanceResult AdvanceSimulation(
+            RunState runState,
+            GameCalendarDefinition calendar,
+            CharacterDefinition controlledCharacter,
+            IEnumerable<TaskDefinition> tasks,
+            float simulationSeconds)
+        {
+            return AdvanceSimulationInternal(runState, calendar, controlledCharacter, tasks, null, simulationSeconds);
+        }
+
+        private SimulationAdvanceResult AdvanceSimulationInternal(
+            RunState runState,
+            GameCalendarDefinition calendar,
+            CharacterDefinition controlledCharacter,
+            IEnumerable<TaskDefinition> tasks,
+            IEnumerable<LocationDefinition> locations,
+            float simulationSeconds)
+        {
+            if (runState == null || calendar == null || controlledCharacter == null || simulationSeconds <= 0f)
+            {
+                return default;
+            }
+
+            EnsureDayTimer(runState, calendar);
 
             var stateChanged = false;
             var dayAdvanced = false;

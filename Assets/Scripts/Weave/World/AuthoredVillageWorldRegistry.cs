@@ -271,7 +271,10 @@ namespace Weave.World
 
             foreach (var npc in npcs)
             {
-                if (npc == null || string.IsNullOrWhiteSpace(npc.CharacterId) || !runState.Characters.TryGetValue(npc.CharacterId, out var state))
+                if (npc == null ||
+                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
+                    (controlledCharacter != null && npc.CharacterId == controlledCharacter.CharacterId) ||
+                    !runState.Characters.TryGetValue(npc.CharacterId, out var state))
                 {
                     continue;
                 }
@@ -334,7 +337,10 @@ namespace Weave.World
 
             foreach (var npc in npcs)
             {
-                if (npc == null || !npc.InteractionAvailable || string.IsNullOrWhiteSpace(npc.CharacterId))
+                if (npc == null ||
+                    !npc.InteractionAvailable ||
+                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
+                    npc.CharacterId == runState.ControlledCharacterId)
                 {
                     continue;
                 }
