@@ -11,6 +11,21 @@ namespace Weave.Tests.EditMode
     public sealed class AuthoredVillageWorldRegistryTests
     {
         [Test]
+        public void TravelRouteState_EvaluatesUsingSegmentDurations()
+        {
+            var route = new TravelRouteState();
+            route.Set(
+                new List<Vector2> { Vector2.zero, new Vector2(1f, 0f), new Vector2(1f, 3f) },
+                new List<float> { 0f, 1f, 4f },
+                4f);
+
+            var midpoint = route.Evaluate(0.5f);
+
+            Assert.That(midpoint.x, Is.EqualTo(1f).Within(0.001f));
+            Assert.That(midpoint.y, Is.EqualTo(1f).Within(0.001f));
+        }
+
+        [Test]
         public void BuildTravelPlan_PrefersRoadTimeOverShorterOffRoadDistance()
         {
             var root = new GameObject("World");

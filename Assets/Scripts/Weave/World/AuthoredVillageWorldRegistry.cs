@@ -24,6 +24,80 @@ namespace Weave.World
     {
         private const float MinimumDurationSeconds = 0.01f;
 
+        private sealed class MinFrontier
+        {
+            private readonly List<Entry> entries = new List<Entry>();
+
+            private readonly struct Entry
+            {
+                public Entry(Vector2Int node, float priority)
+                {
+                    Node = node;
+                    Priority = priority;
+                }
+
+                public Vector2Int Node { get; }
+                public float Priority { get; }
+            }
+
+            public int Count => entries.Count;
+
+            public void Enqueue(Vector2Int node, float priority)
+            {
+                entries.Add(new Entry(node, priority));
+                var index = entries.Count - 1;
+
+                while (index > 0)
+                {
+                    var parentIndex = (index - 1) / 2;
+                    if (entries[parentIndex].Priority <= entries[index].Priority)
+                    {
+                        break;
+                    }
+
+                    (entries[parentIndex], entries[index]) = (entries[index], entries[parentIndex]);
+                    index = parentIndex;
+                }
+            }
+
+            public Vector2Int Dequeue()
+            {
+                var root = entries[0].Node;
+                var last = entries[entries.Count - 1];
+                entries.RemoveAt(entries.Count - 1);
+
+                if (entries.Count == 0)
+                {
+                    return root;
+                }
+
+                entries[0] = last;
+                var index = 0;
+                while (true)
+                {
+                    var left = index * 2 + 1;
+                    var right = left + 1;
+                    if (left >= entries.Count)
+                    {
+                        break;
+                    }
+
+                    var smallest = right < entries.Count && entries[right].Priority < entries[left].Priority
+                        ? right
+                        : left;
+                    if (entries[index].Priority <= entries[smallest].Priority)
+                    {
+                        break;
+                    }
+
+                    (entries[index], entries[smallest]) = (entries[smallest], entries[index]);
+                    index = smallest;
+                }
+
+                return root;
+            }
+        }
+
         [SerializeField] private float pathGridCellSize = 0.5f;
         [SerializeField] private float pathBoundsPadding = 2f;
 
@@ -420,7 +494,7 @@ namespace Weave.World
             task.hideFlags = HideFlags.HideAndDontSave;
             SerializedFieldUtility.SetPrivateField(task, "taskId", $"talk::{npc.CharacterId}::{locationId}");
             SerializedFieldUtility.SetPrivateField(task, "displayName", $"Talk to {npc.DisplayName}");
-            SerializedFieldUtility.SetPrivateField(task, "requiredLocation", npc.HomeLocation != null ? npc.HomeLocation.LocationDefinition : null);
+            SerializedFieldUtility.SetPrivateField(task, "requiredLocation", null);
             SerializedFieldUtility.SetPrivateField(task, "requiredLocationId", locationId);
             SerializedFieldUtility.SetPrivateField(task, "eligibleCharacters", new List<CharacterDefinition>());
             SerializedFieldUtility.SetPrivateField(task, "requiredWorldFlags", new List<string>());
@@ -446,17 +520,20 @@ namespace Weave.World
 
             var originIndex = WorldToGrid(origin, bounds.min, cellSize);
             var destinationIndex = WorldToGrid(destination, bounds.min, cellSize);
-            var frontier = new List<Vector2Int> { originIndex };
+            var frontier = new MinFrontier();
             var cameFrom = new Dictionary<Vector2Int, Vector2Int>();
             var gScore = new Dictionary<Vector2Int, float> { [originIndex] = 0f };
             var fScore = new Dictionary<Vector2Int, float> { [originIndex] = Heuristic(originIndex, destinationIndex, cellSize, secondsPerDistanceUnit) };
             var closed = new HashSet<Vector2Int>();
+            frontier.Enqueue(originIndex, fScore[originIndex]);
 
             while (frontier.Count > 0)
             {
-                frontier.Sort((left, right) => fScore[left].CompareTo(fScore[right]));
-                var current = frontier[0];
-                frontier.RemoveAt(0);
+                var current = frontier.Dequeue();
+                if (closed.Contains(current))
+                {
+                    continue;
+                }
 
                 if (current == destinationIndex)
                 {
@@ -486,10 +563,7 @@ namespace Weave.World
                     cameFrom[neighbor] = current;
                     gScore[neighbor] = tentative;
                     fScore[neighbor] = tentative + Heuristic(neighbor, destinationIndex, cellSize, secondsPerDistanceUnit);
-                    if (!frontier.Contains(neighbor))
-                    {
-                        frontier.Add(neighbor);
-                    }
+                    frontier.Enqueue(neighbor, fScore[neighbor]);
                 }
             }
 

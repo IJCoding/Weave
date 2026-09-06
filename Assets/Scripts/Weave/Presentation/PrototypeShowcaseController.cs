@@ -47,6 +47,7 @@ namespace Weave.Presentation
         private PlayerCanonState playerCanon = new PlayerCanonState();
         private bool popupOwnsPause;
         private bool suppressRefresh;
+        private Transform controlledCharacterVisual;
 
         private Canvas runtimeCanvas;
         private Text dayText;
@@ -134,6 +135,11 @@ namespace Weave.Presentation
                 session.StateChanged -= RefreshPresentation;
                 session.SimulationAdvanced -= HandleSimulationAdvanced;
                 session.SimulationLogEntryAdded -= HandleSimulationLogEntryAdded;
+            }
+
+            if (controlledCharacterVisual != null)
+            {
+                Destroy(controlledCharacterVisual.gameObject);
             }
         }
 
@@ -295,8 +301,9 @@ namespace Weave.Presentation
             label.characterSize = 0.12f;
             label.fontSize = 48;
             label.color = Color.white;
-            characterVisuals[controlledCharacter.CharacterId] = playerVisual.transform;
-            workRings[controlledCharacter.CharacterId] = CreateWorkRing(playerVisual.transform, "Controlled Ring");
+            controlledCharacterVisual = playerVisual.transform;
+            characterVisuals[controlledCharacter.CharacterId] = controlledCharacterVisual;
+            workRings[controlledCharacter.CharacterId] = CreateWorkRing(controlledCharacterVisual, "Controlled Ring");
         }
 
         private void RefreshPresentation()
@@ -435,7 +442,10 @@ namespace Weave.Presentation
         private void CreateTaskButton(TaskDefinition task, ActionProgressSummary progress, bool interactable, bool showProgress)
         {
             var buttonView = CreateButton(taskButtonContainer, task.DisplayName, task.DisplayName, () => AssignTask(task));
-            buttonView.Button.interactable = interactable && !session.RunState.GetCharacter(controlledCharacter.CharacterId).IsTravelling && !session.RunState.GetCharacter(controlledCharacter.CharacterId).IsWorkingOnTask;
+            buttonView.Button.interactable = !showProgress &&
+                interactable &&
+                !session.RunState.GetCharacter(controlledCharacter.CharacterId).IsTravelling &&
+                !session.RunState.GetCharacter(controlledCharacter.CharacterId).IsWorkingOnTask;
             var phaseContainer = CreatePanel($"{task.DisplayName} Phase", buttonView.Button.transform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(10f, 6f), new Vector2(-10f, 16f), new Color(0.09f, 0.11f, 0.14f, 1f));
             phaseContainer.GetComponent<Image>().raycastTarget = false;
             var overallFill = CreatePanel($"{task.DisplayName} Overall", phaseContainer, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero, new Color(0.24f, 0.30f, 0.36f, 0.65f)).GetComponent<Image>();
