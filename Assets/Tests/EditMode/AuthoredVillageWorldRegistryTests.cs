@@ -3,6 +3,7 @@ using NUnit.Framework;
 using UnityEngine;
 using Weave.Data;
 using Weave.Runtime;
+using Weave.Simulation;
 using Weave.World;
 
 namespace Weave.Tests.EditMode
@@ -44,7 +45,7 @@ namespace Weave.Tests.EditMode
                 var registry = root.AddComponent<AuthoredVillageWorldRegistry>();
                 var home = CreateLocation(root.transform, "home", Vector2.zero);
                 var mine = CreateLocation(root.transform, "mine", new Vector2(2f, 0f));
-                var mina = CreateNpc(root.transform, "mina", home, home);
+                CreateNpc(root.transform, "mina", home, home);
                 CreateNpc(root.transform, "rowan", mine, mine);
                 registry.RefreshWorld();
 

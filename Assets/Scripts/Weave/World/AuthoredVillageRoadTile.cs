@@ -11,7 +11,15 @@ namespace Weave.World
         [SerializeField] private Vector2 size = new Vector2(1f, 1f);
 
         public float MovementMultiplier => Mathf.Max(1f, movementMultiplier);
-        public Bounds Bounds => GetComponent<BoxCollider2D>().bounds;
+        public Bounds Bounds
+        {
+            get
+            {
+                EnsureReferences();
+                ApplyVisuals();
+                return GetComponent<BoxCollider2D>().bounds;
+            }
+        }
 
         public bool Contains(Vector2 point)
         {
