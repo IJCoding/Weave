@@ -45,10 +45,17 @@ namespace Weave.Presentation
         private Sprite markerSprite;
         private GameObject runtimeVisualRoot;
         private string statusMessage = "The prototype is ready to demonstrate travel, task resolution, events, canon, and day progression.";
+        private List<string> seasonNames = new List<string>();
 
         private void Awake()
         {
             session = GetComponent<PrototypeGameSession>();
+
+            if (session == null)
+            {
+                session = gameObject.AddComponent<PrototypeGameSession>();
+            }
+
             var scenario = CreateScenario();
 
             controlledCharacter = scenario.ControlledCharacter;
@@ -57,6 +64,7 @@ namespace Weave.Presentation
             tasks = scenario.Tasks;
             playerEvent = scenario.PlayerEvent;
             npcEvent = scenario.NpcEvent;
+            seasonNames = new List<string>(scenario.Calendar.Seasons);
 
             session.Configure(scenario.Calendar, locations, characters, tasks);
             session.StartRun(controlledCharacter);
@@ -94,10 +102,7 @@ namespace Weave.Presentation
 
             var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
             var availableTasks = session.GetPlayerTasks();
-            var currentSeason = session.RunState.Calendar.SeasonIndex < 0 ||
-                                session.RunState.Calendar.SeasonIndex >= 4
-                ? "Unknown"
-                : new[] { "Spring", "Summer", "Autumn", "Winter" }[session.RunState.Calendar.SeasonIndex];
+            var currentSeason = GetCurrentSeasonName();
 
             GUILayout.BeginArea(new Rect(16f, 16f, 360f, 520f), GUI.skin.box);
             GUILayout.Label("Weave Prototype Showcase");
@@ -206,6 +211,18 @@ namespace Weave.Presentation
             GUILayout.Label("Status");
             GUILayout.Label(statusMessage);
             GUILayout.EndArea();
+        }
+
+        private string GetCurrentSeasonName()
+        {
+            var seasonIndex = session.RunState.Calendar.SeasonIndex;
+
+            if (seasonIndex < 0 || seasonIndex >= seasonNames.Count)
+            {
+                return "Unknown";
+            }
+
+            return seasonNames[seasonIndex];
         }
 
         private void RestartRun()
