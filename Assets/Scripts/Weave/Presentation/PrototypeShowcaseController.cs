@@ -2,6 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem.UI;
+#endif
 using Weave.Data;
 using Weave.Runtime;
 using Weave.Simulation;
@@ -18,6 +23,8 @@ namespace Weave.Presentation
         private const string FocusOnWorkOptionId = "focus_on_work";
         private const string RowanHelpedFlag = "rowan_helped";
         private const string SuppliesSharedFlag = "supplies_shared";
+        private static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
+        private const float TargetAspectRatio = 16f / 9f;
 
         private sealed class ShowcaseScenario
         {
@@ -30,8 +37,22 @@ namespace Weave.Presentation
             public EventDefinition NpcEvent;
         }
 
+        private sealed class PopupChoice
+        {
+            public string Label;
+            public Action OnSelected;
+        }
+
+        private sealed class TaskButtonView
+        {
+            public TaskDefinition Task;
+            public Button Button;
+            public Text Label;
+        }
+
         private readonly Dictionary<string, SpriteRenderer> characterMarkers = new Dictionary<string, SpriteRenderer>();
         private readonly List<UnityEngine.Object> runtimeDefinitions = new List<UnityEngine.Object>();
+        private readonly List<TaskButtonView> taskButtons = new List<TaskButtonView>();
 
         private PrototypeGameSession session;
         private PlayerCanonState playerCanon = new PlayerCanonState();
@@ -41,11 +62,37 @@ namespace Weave.Presentation
         private List<TaskDefinition> tasks = new List<TaskDefinition>();
         private EventDefinition playerEvent;
         private EventDefinition npcEvent;
-        private TaskDefinition activeTask;
-        private Sprite markerSprite;
+        private Sprite squareSprite;
+        private Sprite circleSprite;
         private GameObject runtimeVisualRoot;
-        private string statusMessage = "The prototype is ready to demonstrate travel, task resolution, events, canon, and day progression.";
+        private Font uiFont;
+        private string statusMessage = "The prototype now runs on realtime day progression with timed travel, tasks, and modal events.";
         private List<string> seasonNames = new List<string>();
+        private bool popupOwnsPause;
+        private bool suppressPresentationRefresh;
+
+        private Canvas runtimeCanvas;
+        private RectTransform compositionRoot;
+        private Text dayText;
+        private Text timeRemainingText;
+        private Text controlledCharacterText;
+        private Text currentLocationText;
+        private Text resourcesText;
+        private Text worldFlagsText;
+        private Text currentTaskText;
+        private Text taskStateText;
+        private Text taskTimeText;
+        private Text statusText;
+        private RectTransform taskButtonContainer;
+        private Image taskProgressFill;
+        private Image pauseButtonImage;
+        private Image playButtonImage;
+        private Image fastForwardButtonImage;
+        private GameObject popupOverlay;
+        private Text popupTitleText;
+        private Text popupSourceText;
+        private Text popupBodyText;
+        private RectTransform popupChoiceContainer;
 
         private void Awake()
         {
@@ -57,7 +104,6 @@ namespace Weave.Presentation
             }
 
             var scenario = CreateScenario();
-
             controlledCharacter = scenario.ControlledCharacter;
             locations = scenario.Locations;
             characters = scenario.Characters;
@@ -67,30 +113,43 @@ namespace Weave.Presentation
             seasonNames = new List<string>(scenario.Calendar.Seasons);
 
             session.Configure(scenario.Calendar, locations, characters, tasks);
-            session.StartRun(controlledCharacter);
-
             ConfigureCamera();
             BuildRuntimeVisuals();
+            BuildRuntimeUi();
+            session.StateChanged += RefreshPresentation;
+            session.SimulationAdvanced += HandleSimulationAdvanced;
+            session.StartRun(controlledCharacter);
+            ApplyFixedAspect();
             UpdateCharacterMarkers();
+            RefreshPresentation();
         }
 
         private void Update()
         {
+            ApplyFixedAspect();
             UpdateCharacterMarkers();
         }
 
         private void OnDestroy()
         {
+            if (session != null)
+            {
+                session.StateChanged -= RefreshPresentation;
+                session.SimulationAdvanced -= HandleSimulationAdvanced;
+            }
+
             if (runtimeVisualRoot != null)
             {
                 DestroyObject(runtimeVisualRoot);
             }
 
-            if (markerSprite != null)
+            if (runtimeCanvas != null)
             {
-                DestroyObject(markerSprite.texture);
-                DestroyObject(markerSprite);
+                DestroyObject(runtimeCanvas.gameObject);
             }
+
+            DestroySprite(squareSprite);
+            DestroySprite(circleSprite);
 
             foreach (var runtimeDefinition in runtimeDefinitions)
             {
@@ -98,151 +157,6 @@ namespace Weave.Presentation
             }
 
             runtimeDefinitions.Clear();
-        }
-
-        private void OnGUI()
-        {
-            if (session == null || session.RunState == null || controlledCharacter == null)
-            {
-                return;
-            }
-
-            var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
-            var availableTasks = session.GetPlayerTasks();
-            var currentSeason = GetCurrentSeasonName();
-
-            GUILayout.BeginArea(new Rect(16f, 16f, 360f, 520f), GUI.skin.box);
-            GUILayout.Label("Weave Prototype Showcase");
-            GUILayout.Label($"Day {session.RunState.Calendar.DayOfSeason} of {currentSeason}, Year {session.RunState.Calendar.Year}");
-            GUILayout.Label($"Controlled villager: {controlledCharacter.DisplayName} ({controlledCharacter.Profession})");
-            GUILayout.Label($"Current location: {GetLocationDisplayName(controlledState.CurrentLocationId)}");
-            GUILayout.Label($"Current task: {GetTaskDisplayName(controlledState.CurrentTaskId)}");
-            GUILayout.Label($"Travel progress: {(controlledState.IsTravelling ? $"{Mathf.RoundToInt(controlledState.TravelProgress * 100f)}%" : "Idle")}");
-            GUILayout.Label($"Resources: {FormatResources(controlledState)}");
-            GUILayout.Label($"World flags: {FormatWorldFlags()}\n");
-
-            if (GUILayout.Button("Restart demo run"))
-            {
-                RestartRun();
-            }
-
-            GUILayout.Space(8f);
-            GUILayout.Label("Tasks");
-
-            if (!controlledState.IsTravelling && string.IsNullOrEmpty(controlledState.CurrentTaskId))
-            {
-                foreach (var task in availableTasks)
-                {
-                    if (GUILayout.Button($"Travel for: {task.DisplayName}"))
-                    {
-                        activeTask = task;
-                        session.AssignPlayerTask(task);
-                        statusMessage = $"{controlledCharacter.DisplayName} started travelling to {task.RequiredLocation.DisplayName}.";
-                    }
-                }
-            }
-            else if (controlledState.IsTravelling)
-            {
-                if (GUILayout.Button("Advance travel by 25%"))
-                {
-                    session.TickCharacterTravel(controlledCharacter.CharacterId, 0.25f);
-                    var updatedState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
-                    statusMessage = updatedState.IsTravelling
-                        ? $"{controlledCharacter.DisplayName} advanced toward {GetLocationDisplayName(updatedState.TravelDestinationLocationId)}."
-                        : $"{controlledCharacter.DisplayName} arrived at {GetLocationDisplayName(updatedState.CurrentLocationId)}.";
-                }
-
-                if (GUILayout.Button("Arrive now"))
-                {
-                    session.TickCharacterTravel(
-                        controlledCharacter.CharacterId,
-                        Mathf.Max(1f - controlledState.TravelProgress, 0f));
-                    var updatedState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
-                    statusMessage = updatedState.IsTravelling
-                        ? $"{controlledCharacter.DisplayName} advanced toward {GetLocationDisplayName(updatedState.TravelDestinationLocationId)}."
-                        : $"{controlledCharacter.DisplayName} arrived at {GetLocationDisplayName(updatedState.CurrentLocationId)}.";
-                }
-            }
-            else if (activeTask != null && controlledState.CurrentTaskId == activeTask.TaskId)
-            {
-                if (GUILayout.Button($"Resolve task: {activeTask.DisplayName}"))
-                {
-                    session.ResolvePlayerTask(activeTask);
-                    var updatedState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
-                    statusMessage = $"Resolved {activeTask.DisplayName}. {controlledCharacter.DisplayName} now has {FormatResources(updatedState)}.";
-                    activeTask = null;
-                }
-            }
-
-            GUILayout.Space(8f);
-            GUILayout.Label("Player event");
-            GUILayout.Label("Village Request: Rowan asks whether you will back his workshop plan.");
-
-            if (GUILayout.Button("Choose: Help Rowan"))
-            {
-                var resolution = session.ResolvePlayerEvent(playerEvent, HelpRowanOptionId);
-                statusMessage = string.IsNullOrEmpty(resolution.SummaryText) ? "Resolved the player event." : resolution.SummaryText;
-            }
-
-            if (GUILayout.Button("Choose: Focus on work"))
-            {
-                var resolution = session.ResolvePlayerEvent(playerEvent, FocusOnWorkOptionId);
-                statusMessage = string.IsNullOrEmpty(resolution.SummaryText) ? "Resolved the player event." : resolution.SummaryText;
-            }
-
-            GUILayout.Space(8f);
-            GUILayout.Label("NPC canon event");
-
-            if (GUILayout.Button("Use Rowan's developer canon"))
-            {
-                playerCanon = new PlayerCanonState();
-                statusMessage = "Rowan will follow the authored developer canon again.";
-            }
-
-            if (GUILayout.Button("Override Rowan canon: stay at workshop"))
-            {
-                playerCanon.SetOption("rowan", RowanDecisionKey, StayAtWorkshopOptionId);
-                statusMessage = "Rowan now follows the player-canon override instead of the developer default.";
-            }
-
-            if (GUILayout.Button("Resolve Rowan canon event"))
-            {
-                var resolution = session.ResolveNpcEvent(playerCanon, npcEvent);
-                statusMessage = string.IsNullOrEmpty(resolution.SummaryText) ? "Resolved Rowan's event." : resolution.SummaryText;
-            }
-
-            GUILayout.Space(8f);
-            if (GUILayout.Button("Advance day"))
-            {
-                activeTask = null;
-                session.AdvanceDay();
-                statusMessage = "Advanced to the next day and cleared the daily travel/task state.";
-            }
-
-            GUILayout.Space(8f);
-            GUILayout.Label("Status");
-            GUILayout.Label(statusMessage);
-            GUILayout.EndArea();
-        }
-
-        private string GetCurrentSeasonName()
-        {
-            var seasonIndex = session.RunState.Calendar.SeasonIndex;
-
-            if (seasonIndex < 0 || seasonIndex >= seasonNames.Count)
-            {
-                return "Unknown";
-            }
-
-            return seasonNames[seasonIndex];
-        }
-
-        private void RestartRun()
-        {
-            playerCanon = new PlayerCanonState();
-            activeTask = null;
-            session.StartRun(controlledCharacter);
-            statusMessage = "Restarted the run from day one with the authored starting data.";
         }
 
         private void ConfigureCamera()
@@ -253,14 +167,15 @@ namespace Weave.Presentation
             }
 
             Camera.main.orthographic = true;
-            Camera.main.orthographicSize = 5.75f;
+            Camera.main.orthographicSize = 5.4f;
             Camera.main.transform.position = new Vector3(0f, 0f, -10f);
-            Camera.main.backgroundColor = new Color(0.10f, 0.13f, 0.18f, 1f);
+            Camera.main.backgroundColor = new Color(0.04f, 0.05f, 0.07f, 1f);
         }
 
         private void BuildRuntimeVisuals()
         {
-            markerSprite = CreateMarkerSprite();
+            squareSprite = CreateSquareSprite();
+            circleSprite = CreateCircleSprite(32);
             runtimeVisualRoot = new GameObject("Prototype Showcase Runtime Visuals");
             characterMarkers.Clear();
 
@@ -271,12 +186,12 @@ namespace Weave.Presentation
                 locationObject.transform.position = new Vector3(location.MapPosition.x, location.MapPosition.y, 0f);
 
                 var renderer = locationObject.AddComponent<SpriteRenderer>();
-                renderer.sprite = markerSprite;
+                renderer.sprite = squareSprite;
                 renderer.color = GetLocationColor(location.LocationType);
                 renderer.sortingOrder = 0;
-                locationObject.transform.localScale = new Vector3(0.7f, 0.7f, 1f);
+                locationObject.transform.localScale = new Vector3(1.15f, 0.75f, 1f);
 
-                CreateTextLabel(locationObject.transform, location.DisplayName, new Vector3(0f, 0.7f, 0f), 0.28f, Color.white);
+                CreateTextLabel(locationObject.transform, location.DisplayName, new Vector3(0f, 0.78f, 0f), 0.22f, Color.white);
             }
 
             foreach (var character in characters)
@@ -285,14 +200,669 @@ namespace Weave.Presentation
                 characterObject.transform.SetParent(runtimeVisualRoot.transform, false);
 
                 var renderer = characterObject.AddComponent<SpriteRenderer>();
-                renderer.sprite = markerSprite;
+                renderer.sprite = circleSprite;
                 renderer.color = character.MapColor;
                 renderer.sortingOrder = 2;
-                characterObject.transform.localScale = new Vector3(0.35f, 0.35f, 1f);
+                characterObject.transform.localScale = new Vector3(0.34f, 0.34f, 1f);
 
-                CreateTextLabel(characterObject.transform, character.DisplayName, new Vector3(0f, -0.55f, 0f), 0.18f, character.MapColor);
+                CreateTextLabel(characterObject.transform, character.DisplayName, new Vector3(0f, -0.55f, 0f), 0.16f, character.MapColor);
                 characterMarkers[character.CharacterId] = renderer;
             }
+        }
+
+        private void BuildRuntimeUi()
+        {
+            uiFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            EnsureEventSystem();
+
+            var canvasObject = new GameObject("Prototype Showcase Canvas");
+            runtimeCanvas = canvasObject.AddComponent<Canvas>();
+            runtimeCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            runtimeCanvas.sortingOrder = 100;
+
+            var scaler = canvasObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = ReferenceResolution;
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+            canvasObject.AddComponent<GraphicRaycaster>();
+
+            var canvasRect = runtimeCanvas.GetComponent<RectTransform>();
+            canvasRect.anchorMin = Vector2.zero;
+            canvasRect.anchorMax = Vector2.one;
+            canvasRect.offsetMin = Vector2.zero;
+            canvasRect.offsetMax = Vector2.zero;
+
+            compositionRoot = CreateRect("Composition Root", canvasRect);
+            compositionRoot.anchorMin = new Vector2(0.5f, 0.5f);
+            compositionRoot.anchorMax = new Vector2(0.5f, 0.5f);
+            compositionRoot.pivot = new Vector2(0.5f, 0.5f);
+            compositionRoot.sizeDelta = ReferenceResolution;
+            var fitter = compositionRoot.gameObject.AddComponent<AspectRatioFitter>();
+            fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+            fitter.aspectRatio = TargetAspectRatio;
+
+            var frame = CreatePanel(
+                "Frame",
+                compositionRoot,
+                Vector2.zero,
+                Vector2.one,
+                new Vector2(24f, 24f),
+                new Vector2(-24f, -24f),
+                new Color(0.08f, 0.10f, 0.13f, 0.94f));
+            frame.gameObject.AddComponent<Outline>().effectColor = new Color(0.38f, 0.43f, 0.50f, 0.9f);
+
+            CreatePanel(
+                "Map Frame",
+                frame,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 1f),
+                new Vector2(108f, 168f),
+                new Vector2(-108f, -254f),
+                new Color(0.02f, 0.03f, 0.04f, 0.08f));
+
+            CreateText(
+                "Map Title",
+                frame,
+                new Vector2(0.5f, 1f),
+                new Vector2(0.5f, 1f),
+                new Vector2(-220f, -120f),
+                new Vector2(220f, -70f),
+                "VILLAGE MAP",
+                38,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                Color.white);
+
+            var infoPanel = CreatePanel(
+                "Info Panel",
+                frame,
+                new Vector2(0f, 1f),
+                new Vector2(0f, 1f),
+                new Vector2(42f, -42f),
+                new Vector2(510f, -290f),
+                new Color(0.12f, 0.15f, 0.19f, 0.88f));
+
+            controlledCharacterText = CreateText(
+                "Controlled Character",
+                infoPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(18f, -18f),
+                new Vector2(-18f, -56f),
+                string.Empty,
+                24,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                Color.white);
+
+            currentLocationText = CreateText(
+                "Current Location",
+                infoPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(18f, -60f),
+                new Vector2(-18f, -96f),
+                string.Empty,
+                20,
+                FontStyle.Normal,
+                TextAnchor.MiddleLeft,
+                new Color(0.84f, 0.88f, 0.94f, 1f));
+
+            resourcesText = CreateText(
+                "Resources",
+                infoPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(18f, -102f),
+                new Vector2(-18f, -152f),
+                string.Empty,
+                18,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                new Color(0.84f, 0.88f, 0.94f, 1f));
+
+            worldFlagsText = CreateText(
+                "World Flags",
+                infoPanel,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(18f, 18f),
+                new Vector2(-18f, 76f),
+                string.Empty,
+                18,
+                FontStyle.Normal,
+                TextAnchor.LowerLeft,
+                new Color(0.73f, 0.79f, 0.86f, 1f));
+
+            var clockPanel = CreatePanel(
+                "Clock Panel",
+                frame,
+                new Vector2(1f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(-540f, -42f),
+                new Vector2(-42f, -180f),
+                new Color(0.12f, 0.15f, 0.19f, 0.88f));
+
+            var clockButtonRow = CreateRect("Clock Buttons", clockPanel);
+            clockButtonRow.anchorMin = new Vector2(0f, 1f);
+            clockButtonRow.anchorMax = new Vector2(1f, 1f);
+            clockButtonRow.offsetMin = new Vector2(16f, -70f);
+            clockButtonRow.offsetMax = new Vector2(-16f, -16f);
+            var clockLayout = clockButtonRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+            clockLayout.spacing = 12f;
+            clockLayout.childForceExpandWidth = true;
+            clockLayout.childForceExpandHeight = true;
+            clockLayout.childControlWidth = true;
+            clockLayout.childControlHeight = true;
+
+            pauseButtonImage = CreateButton(clockButtonRow, "Pause", "||", () => session.SetSimulationSpeed(SimulationSpeedMode.Paused)).Image;
+            playButtonImage = CreateButton(clockButtonRow, "Play", ">", () => session.SetSimulationSpeed(SimulationSpeedMode.Normal)).Image;
+            fastForwardButtonImage = CreateButton(clockButtonRow, "Fast Forward", ">>", () => session.SetSimulationSpeed(SimulationSpeedMode.FastForward)).Image;
+
+            dayText = CreateText(
+                "Day Text",
+                clockPanel,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(18f, 54f),
+                new Vector2(-18f, 94f),
+                string.Empty,
+                24,
+                FontStyle.Bold,
+                TextAnchor.MiddleRight,
+                Color.white);
+
+            timeRemainingText = CreateText(
+                "Time Remaining Text",
+                clockPanel,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(18f, 12f),
+                new Vector2(-18f, 52f),
+                string.Empty,
+                28,
+                FontStyle.Normal,
+                TextAnchor.MiddleRight,
+                new Color(0.95f, 0.97f, 1f, 1f));
+
+            var eventButtonPanel = CreatePanel(
+                "Event Button Panel",
+                frame,
+                new Vector2(0f, 1f),
+                new Vector2(0f, 1f),
+                new Vector2(42f, -310f),
+                new Vector2(510f, -480f),
+                new Color(0.12f, 0.15f, 0.19f, 0.88f));
+
+            CreateText(
+                "Event Actions Label",
+                eventButtonPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(18f, -18f),
+                new Vector2(-18f, -48f),
+                "Event Actions",
+                22,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                Color.white);
+
+            var eventButtonLayout = CreateRect("Event Buttons", eventButtonPanel);
+            eventButtonLayout.anchorMin = new Vector2(0f, 0f);
+            eventButtonLayout.anchorMax = new Vector2(1f, 1f);
+            eventButtonLayout.offsetMin = new Vector2(18f, 18f);
+            eventButtonLayout.offsetMax = new Vector2(-18f, -58f);
+            var eventLayout = eventButtonLayout.gameObject.AddComponent<VerticalLayoutGroup>();
+            eventLayout.spacing = 10f;
+            eventLayout.childControlHeight = true;
+            eventLayout.childControlWidth = true;
+            eventLayout.childForceExpandHeight = false;
+            eventLayout.childForceExpandWidth = true;
+
+            CreateButton(eventButtonLayout, "Village Request", "Open Village Request", ShowPlayerEventPopup);
+            CreateButton(eventButtonLayout, "Resolve Rowan Canon Event", "Resolve Rowan Canon Event", ResolveNpcEvent);
+            CreateButton(eventButtonLayout, "Restart Demo Run", "Restart Demo Run", RestartRun);
+
+            var bottomPanel = CreatePanel(
+                "Bottom Panel",
+                frame,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(42f, 42f),
+                new Vector2(-42f, 226f),
+                new Color(0.12f, 0.15f, 0.19f, 0.92f));
+
+            var taskListPanel = CreatePanel(
+                "Task List Panel",
+                bottomPanel,
+                new Vector2(0f, 0f),
+                new Vector2(0.48f, 1f),
+                new Vector2(18f, 18f),
+                new Vector2(-12f, -18f),
+                new Color(0.10f, 0.13f, 0.17f, 0.92f));
+
+            CreateText(
+                "Task List Label",
+                taskListPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -16f),
+                new Vector2(-16f, -48f),
+                "Available Assignments",
+                22,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                Color.white);
+
+            taskButtonContainer = CreateRect("Task Buttons", taskListPanel);
+            taskButtonContainer.anchorMin = new Vector2(0f, 0f);
+            taskButtonContainer.anchorMax = new Vector2(1f, 1f);
+            taskButtonContainer.offsetMin = new Vector2(16f, 16f);
+            taskButtonContainer.offsetMax = new Vector2(-16f, -56f);
+            var taskLayout = taskButtonContainer.gameObject.AddComponent<VerticalLayoutGroup>();
+            taskLayout.spacing = 10f;
+            taskLayout.childControlHeight = true;
+            taskLayout.childControlWidth = true;
+            taskLayout.childForceExpandHeight = false;
+            taskLayout.childForceExpandWidth = true;
+            taskButtonContainer.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            foreach (var task in tasks)
+            {
+                var capturedTask = task;
+                var buttonView = CreateButton(taskButtonContainer, task.DisplayName, task.DisplayName, () => AssignTask(capturedTask));
+                taskButtons.Add(new TaskButtonView
+                {
+                    Task = capturedTask,
+                    Button = buttonView.Button,
+                    Label = buttonView.Label
+                });
+            }
+
+            var activeTaskPanel = CreatePanel(
+                "Active Task Panel",
+                bottomPanel,
+                new Vector2(0.48f, 0f),
+                new Vector2(1f, 1f),
+                new Vector2(12f, 18f),
+                new Vector2(-18f, -18f),
+                new Color(0.10f, 0.13f, 0.17f, 0.92f));
+
+            CreateText(
+                "Active Task Label",
+                activeTaskPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -16f),
+                new Vector2(-16f, -48f),
+                "Current Task",
+                22,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                Color.white);
+
+            currentTaskText = CreateText(
+                "Current Task Text",
+                activeTaskPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -52f),
+                new Vector2(-16f, -88f),
+                string.Empty,
+                24,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                new Color(0.96f, 0.89f, 0.57f, 1f));
+
+            taskStateText = CreateText(
+                "Task State Text",
+                activeTaskPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -92f),
+                new Vector2(-16f, -126f),
+                string.Empty,
+                18,
+                FontStyle.Normal,
+                TextAnchor.MiddleLeft,
+                new Color(0.83f, 0.88f, 0.94f, 1f));
+
+            var progressBackground = CreatePanel(
+                "Task Progress Background",
+                activeTaskPanel,
+                new Vector2(0f, 0.5f),
+                new Vector2(1f, 0.5f),
+                new Vector2(16f, -10f),
+                new Vector2(-16f, 24f),
+                new Color(0.20f, 0.24f, 0.29f, 1f));
+            taskProgressFill = CreatePanel(
+                "Task Progress Fill",
+                progressBackground,
+                new Vector2(0f, 0f),
+                new Vector2(0f, 1f),
+                Vector2.zero,
+                Vector2.zero,
+                new Color(0.35f, 0.74f, 0.48f, 1f))
+                .GetComponent<Image>();
+
+            taskTimeText = CreateText(
+                "Task Time Text",
+                activeTaskPanel,
+                new Vector2(0f, 0.5f),
+                new Vector2(1f, 0.5f),
+                new Vector2(16f, -54f),
+                new Vector2(-16f, -18f),
+                string.Empty,
+                18,
+                FontStyle.Normal,
+                TextAnchor.MiddleRight,
+                new Color(0.95f, 0.97f, 1f, 1f));
+
+            statusText = CreateText(
+                "Status Text",
+                activeTaskPanel,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(16f, 16f),
+                new Vector2(-16f, 92f),
+                string.Empty,
+                18,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                new Color(0.81f, 0.86f, 0.92f, 1f));
+            statusText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            statusText.verticalOverflow = VerticalWrapMode.Overflow;
+
+            popupOverlay = CreatePanel(
+                "Popup Overlay",
+                compositionRoot,
+                Vector2.zero,
+                Vector2.one,
+                Vector2.zero,
+                Vector2.zero,
+                new Color(0f, 0f, 0f, 0.55f))
+                .gameObject;
+            popupOverlay.SetActive(false);
+
+            var popupPanel = CreatePanel(
+                "Popup Panel",
+                popupOverlay.GetComponent<RectTransform>(),
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new Vector2(-340f, -220f),
+                new Vector2(340f, 220f),
+                new Color(0.13f, 0.16f, 0.20f, 0.98f));
+            popupPanel.gameObject.AddComponent<Outline>().effectColor = new Color(0.52f, 0.58f, 0.66f, 0.9f);
+
+            popupTitleText = CreateText(
+                "Popup Title",
+                popupPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(24f, -24f),
+                new Vector2(-24f, -72f),
+                string.Empty,
+                30,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                Color.white);
+
+            popupSourceText = CreateText(
+                "Popup Source",
+                popupPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(24f, -74f),
+                new Vector2(-24f, -106f),
+                string.Empty,
+                18,
+                FontStyle.Normal,
+                TextAnchor.MiddleLeft,
+                new Color(0.83f, 0.88f, 0.94f, 1f));
+
+            popupBodyText = CreateText(
+                "Popup Body",
+                popupPanel,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 1f),
+                new Vector2(24f, 120f),
+                new Vector2(-24f, -116f),
+                string.Empty,
+                24,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                new Color(0.95f, 0.97f, 1f, 1f));
+            popupBodyText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            popupBodyText.verticalOverflow = VerticalWrapMode.Overflow;
+
+            popupChoiceContainer = CreateRect("Popup Choices", popupPanel);
+            popupChoiceContainer.anchorMin = new Vector2(0f, 0f);
+            popupChoiceContainer.anchorMax = new Vector2(1f, 0f);
+            popupChoiceContainer.offsetMin = new Vector2(24f, 24f);
+            popupChoiceContainer.offsetMax = new Vector2(-24f, 104f);
+            var popupLayout = popupChoiceContainer.gameObject.AddComponent<VerticalLayoutGroup>();
+            popupLayout.spacing = 12f;
+            popupLayout.childControlHeight = true;
+            popupLayout.childControlWidth = true;
+            popupLayout.childForceExpandHeight = false;
+            popupLayout.childForceExpandWidth = true;
+            popupChoiceContainer.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        }
+
+        private void RefreshPresentation()
+        {
+            if (session == null ||
+                session.RunState == null ||
+                controlledCharacter == null ||
+                dayText == null ||
+                timeRemainingText == null ||
+                suppressPresentationRefresh)
+            {
+                return;
+            }
+
+            var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+            controlledCharacterText.text = $"{controlledCharacter.DisplayName} ({controlledCharacter.Profession})";
+            currentLocationText.text = $"Location: {GetLocationDisplayName(controlledState.CurrentLocationId)}";
+            resourcesText.text = $"Resources: {FormatResources(controlledState)}";
+            worldFlagsText.text = $"World Flags: {FormatWorldFlags()}";
+            dayText.text = $"{GetCurrentSeasonName()} — Day {session.RunState.Calendar.DayOfSeason}";
+            timeRemainingText.text = $"{FormatDuration(session.RunState.DayTimer.RemainingSeconds)} Remaining";
+            currentTaskText.text = GetTaskDisplayName(controlledState.CurrentTaskId);
+            taskStateText.text = GetTaskStateText(controlledState);
+            taskTimeText.text = GetTaskTimeText(controlledState);
+            statusText.text = statusMessage;
+
+            var progress = controlledState.IsWorkingOnTask && controlledState.TaskDurationSeconds > 0f
+                ? Mathf.Clamp01(controlledState.TaskElapsedSeconds / controlledState.TaskDurationSeconds)
+                : 0f;
+            taskProgressFill.rectTransform.anchorMax = new Vector2(progress, 1f);
+            taskProgressFill.rectTransform.offsetMin = Vector2.zero;
+            taskProgressFill.rectTransform.offsetMax = Vector2.zero;
+            taskProgressFill.gameObject.SetActive(progress > 0f);
+
+            RefreshTaskButtons(controlledState);
+            RefreshSpeedButtons();
+        }
+
+        private void RefreshTaskButtons(CharacterState controlledState)
+        {
+            var availableTaskIds = new HashSet<string>();
+
+            if (!controlledState.HasActiveTask)
+            {
+                foreach (var task in session.GetPlayerTasks())
+                {
+                    availableTaskIds.Add(task.TaskId);
+                }
+            }
+
+            foreach (var taskButton in taskButtons)
+            {
+                var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !controlledState.HasActiveTask;
+                taskButton.Button.interactable = available;
+                var suffix = controlledState.HasActiveTask
+                    ? " — Busy"
+                    : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " — Unavailable";
+                taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s){suffix}";
+            }
+        }
+
+        private void RefreshSpeedButtons()
+        {
+            RefreshSpeedButton(pauseButtonImage, session.SelectedSpeedMode == SimulationSpeedMode.Paused, session.EffectiveSpeedMode == SimulationSpeedMode.Paused);
+            RefreshSpeedButton(playButtonImage, session.SelectedSpeedMode == SimulationSpeedMode.Normal, session.EffectiveSpeedMode == SimulationSpeedMode.Normal);
+            RefreshSpeedButton(fastForwardButtonImage, session.SelectedSpeedMode == SimulationSpeedMode.FastForward, session.EffectiveSpeedMode == SimulationSpeedMode.FastForward);
+        }
+
+        private void RefreshSpeedButton(Image buttonImage, bool selected, bool active)
+        {
+            buttonImage.color = active
+                ? new Color(0.35f, 0.74f, 0.48f, 1f)
+                : selected
+                    ? new Color(0.28f, 0.38f, 0.52f, 1f)
+                    : new Color(0.18f, 0.22f, 0.27f, 1f);
+        }
+
+        private void HandleSimulationAdvanced(SimulationAdvanceResult result)
+        {
+            if (result.TaskInterrupted)
+            {
+                statusMessage = $"{GetTaskDisplayName(result.InterruptedTaskId)} was interrupted when the day ended.";
+            }
+            else if (result.TaskCompleted)
+            {
+                var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+                statusMessage = $"{GetTaskDisplayName(result.CompletedTaskId)} completed. {controlledCharacter.DisplayName} now has {FormatResources(controlledState)}.";
+
+                if (result.CompletedTaskFollowUpEvent != null)
+                {
+                    ShowDecisionPopup(result.CompletedTaskFollowUpEvent);
+                }
+            }
+
+            if (result.DayAdvanced && !result.TaskInterrupted && !result.TaskCompleted)
+            {
+                statusMessage = $"A new day has begun: {GetCurrentSeasonName()} Day {session.RunState.Calendar.DayOfSeason}.";
+            }
+        }
+
+        private void RestartRun()
+        {
+            ClosePopupIfOpen();
+            playerCanon = new PlayerCanonState();
+            session.StartRun(controlledCharacter);
+            statusMessage = "Restarted the run from day one with the authored starting data.";
+            RefreshPresentation();
+        }
+
+        private void AssignTask(TaskDefinition task)
+        {
+            if (task == null || session.RunState == null)
+            {
+                return;
+            }
+
+            var command = session.AssignPlayerTask(task);
+
+            if (string.IsNullOrEmpty(command.CharacterId))
+            {
+                return;
+            }
+
+            statusMessage = $"{controlledCharacter.DisplayName} is travelling to {task.RequiredLocation.DisplayName} for {task.DisplayName}.";
+            RefreshPresentation();
+        }
+
+        private void ShowPlayerEventPopup()
+        {
+            ShowDecisionPopup(playerEvent);
+        }
+
+        private void ResolveNpcEvent()
+        {
+            var resolution = session.ResolveNpcEvent(playerCanon, npcEvent);
+            statusMessage = string.IsNullOrEmpty(resolution.SummaryText)
+                ? "Resolved Rowan's event."
+                : resolution.SummaryText;
+            RefreshPresentation();
+        }
+
+        private void ShowDecisionPopup(EventDefinition eventDefinition)
+        {
+            if (eventDefinition == null || popupOverlay == null || popupOverlay.activeSelf)
+            {
+                return;
+            }
+
+            popupOverlay.SetActive(true);
+            popupTitleText.text = GetEventTitle(eventDefinition);
+            popupSourceText.text = GetEventSourceLabel(eventDefinition);
+            popupSourceText.gameObject.SetActive(!string.IsNullOrEmpty(popupSourceText.text));
+            popupBodyText.text = eventDefinition.Prompt;
+            ClearPopupChoices();
+
+            foreach (var option in eventDefinition.Options)
+            {
+                var capturedOptionId = option.OptionId;
+                var capturedLabel = option.Label;
+                CreatePopupChoice(new PopupChoice
+                {
+                    Label = capturedLabel,
+                    OnSelected = () =>
+                    {
+                        suppressPresentationRefresh = true;
+                        var resolution = session.ResolvePlayerEvent(eventDefinition, capturedOptionId);
+                        statusMessage = string.IsNullOrEmpty(resolution.SummaryText)
+                            ? $"Resolved {GetEventTitle(eventDefinition)}."
+                            : resolution.SummaryText;
+                        ClosePopupIfOpen();
+                        suppressPresentationRefresh = false;
+                        RefreshPresentation();
+                    }
+                });
+            }
+
+            if (!popupOwnsPause)
+            {
+                session.PushPauseOverride();
+                popupOwnsPause = true;
+            }
+        }
+
+        private void ClosePopupIfOpen()
+        {
+            if (popupOverlay != null)
+            {
+                popupOverlay.SetActive(false);
+            }
+
+            ClearPopupChoices();
+
+            if (popupOwnsPause)
+            {
+                session.PopPauseOverride();
+                popupOwnsPause = false;
+            }
+        }
+
+        private void ClearPopupChoices()
+        {
+            if (popupChoiceContainer == null)
+            {
+                return;
+            }
+
+            for (var index = popupChoiceContainer.childCount - 1; index >= 0; index--)
+            {
+                DestroyObject(popupChoiceContainer.GetChild(index).gameObject);
+            }
+        }
+
+        private void CreatePopupChoice(PopupChoice choice)
+        {
+            CreateButton(popupChoiceContainer, choice.Label, choice.Label, choice.OnSelected);
         }
 
         private void UpdateCharacterMarkers()
@@ -314,6 +884,32 @@ namespace Weave.Presentation
             }
         }
 
+        private void ApplyFixedAspect()
+        {
+            if (Camera.main == null)
+            {
+                return;
+            }
+
+            var screenAspect = (float)Screen.width / Mathf.Max(Screen.height, 1);
+
+            if (Mathf.Approximately(screenAspect, TargetAspectRatio))
+            {
+                Camera.main.rect = new Rect(0f, 0f, 1f, 1f);
+                return;
+            }
+
+            if (screenAspect > TargetAspectRatio)
+            {
+                var width = TargetAspectRatio / screenAspect;
+                Camera.main.rect = new Rect((1f - width) * 0.5f, 0f, width, 1f);
+                return;
+            }
+
+            var height = screenAspect / TargetAspectRatio;
+            Camera.main.rect = new Rect(0f, (1f - height) * 0.5f, 1f, height);
+        }
+
         private ShowcaseScenario CreateScenario()
         {
             runtimeDefinitions.Clear();
@@ -321,10 +917,10 @@ namespace Weave.Presentation
             scenario.Calendar = Track(CreateCalendar());
 
             var villageSquare = Track(CreateLocation("village_square", "Village Square", LocationType.Village, new Vector2(0f, 0f)));
-            var easternMine = Track(CreateLocation("eastern_mine", "Eastern Mine", LocationType.Mine, new Vector2(3.6f, 1.8f)));
-            var pineForest = Track(CreateLocation("pine_forest", "Pine Forest", LocationType.Forest, new Vector2(-3.5f, 1.5f)));
-            var riversideFarm = Track(CreateLocation("riverside_farm", "Riverside Farm", LocationType.Farm, new Vector2(-2.75f, -2.25f)));
-            var oldWorkshop = Track(CreateLocation("old_workshop", "Old Workshop", LocationType.Workshop, new Vector2(2.2f, -2f)));
+            var easternMine = Track(CreateLocation("eastern_mine", "Mine", LocationType.Mine, new Vector2(4f, 1.8f)));
+            var pineForest = Track(CreateLocation("pine_forest", "Forest", LocationType.Forest, new Vector2(-3.8f, -1.7f)));
+            var riversideFarm = Track(CreateLocation("riverside_farm", "Farm", LocationType.Farm, new Vector2(-4f, 1.8f)));
+            var oldWorkshop = Track(CreateLocation("old_workshop", "Smithy", LocationType.Workshop, new Vector2(2.6f, -1.7f)));
 
             scenario.Locations = new List<LocationDefinition>
             {
@@ -384,20 +980,23 @@ namespace Weave.Presentation
             {
                 Track(CreateTask(
                     "mine_iron",
-                    "Mine Iron",
+                    "Mining Iron",
                     easternMine,
+                    25f,
                     new List<CharacterDefinition> { mina },
                     new List<ResourceAmount> { new ResourceAmount { ResourceId = "iron", Amount = 2 } })),
                 Track(CreateTask(
                     "gather_timber",
                     "Gather Timber",
                     pineForest,
+                    20f,
                     new List<CharacterDefinition>(),
                     new List<ResourceAmount> { new ResourceAmount { ResourceId = "wood", Amount = 3 } })),
                 Track(CreateTask(
                     "inspect_workshop",
                     "Inspect Workshop",
                     oldWorkshop,
+                    18f,
                     new List<CharacterDefinition>(),
                     new List<ResourceAmount> { new ResourceAmount { ResourceId = "goodwill", Amount = 1 } }))
             };
@@ -413,6 +1012,9 @@ namespace Weave.Presentation
             SerializedFieldUtility.SetPrivateField(calendar, "startingYear", 1);
             SerializedFieldUtility.SetPrivateField(calendar, "seasons", new List<string> { "Spring", "Summer", "Autumn", "Winter" });
             SerializedFieldUtility.SetPrivateField(calendar, "daysPerSeason", 5);
+            SerializedFieldUtility.SetPrivateField(calendar, "dayDurationSeconds", 300f);
+            SerializedFieldUtility.SetPrivateField(calendar, "normalSimulationSpeed", 1f);
+            SerializedFieldUtility.SetPrivateField(calendar, "fastForwardSimulationSpeed", 3f);
             return calendar;
         }
 
@@ -450,6 +1052,7 @@ namespace Weave.Presentation
             string taskId,
             string displayName,
             LocationDefinition requiredLocation,
+            float durationSeconds,
             List<CharacterDefinition> eligibleCharacters,
             List<ResourceAmount> actorResourceChanges)
         {
@@ -460,6 +1063,7 @@ namespace Weave.Presentation
             SerializedFieldUtility.SetPrivateField(task, "eligibleCharacters", eligibleCharacters);
             SerializedFieldUtility.SetPrivateField(task, "requiredWorldFlags", new List<string>());
             SerializedFieldUtility.SetPrivateField(task, "blockedWorldFlags", new List<string>());
+            SerializedFieldUtility.SetPrivateField(task, "durationSeconds", durationSeconds);
             SerializedFieldUtility.SetPrivateField(task, "actorResourceChanges", actorResourceChanges);
             SerializedFieldUtility.SetPrivateField(task, "followUpEvent", null);
             return task;
@@ -469,7 +1073,9 @@ namespace Weave.Presentation
         {
             var eventDefinition = ScriptableObject.CreateInstance<EventDefinition>();
             SerializedFieldUtility.SetPrivateField(eventDefinition, "eventId", "village_request");
-            SerializedFieldUtility.SetPrivateField(eventDefinition, "prompt", "Rowan asks Mina to back his workshop expansion plan.");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "title", "ALICE NEEDS HELP");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "prompt", "Alice asks if you can help repair the damaged fence near the workshop.");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "sourceLabel", "Alice");
             SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionMaker", mina);
             SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionKey", "MINA_REQUEST");
             SerializedFieldUtility.SetPrivateField(eventDefinition, "triggerConditions", new List<WorldFlagRequirement>());
@@ -480,11 +1086,11 @@ namespace Weave.Presentation
                 {
                     CreateOption(
                         HelpRowanOptionId,
-                        "Help Rowan",
+                        "Help Alice",
                         new List<OutcomeVariantDefinition>
                         {
                             CreateOutcome(
-                                "Mina backs Rowan's idea, earning goodwill and setting up the workshop for help.",
+                                "Mina spends time helping with the fence and earns goodwill around the village.",
                                 new List<WorldFlagRequirement>(),
                                 new List<WorldFlagMutation>
                                 {
@@ -497,11 +1103,11 @@ namespace Weave.Presentation
                         }),
                     CreateOption(
                         FocusOnWorkOptionId,
-                        "Focus on Work",
+                        "Refuse",
                         new List<OutcomeVariantDefinition>
                         {
                             CreateOutcome(
-                                "Mina keeps her attention on daily work, so Rowan gets no extra support.",
+                                "Mina refuses and keeps her attention on the day's work instead.",
                                 new List<WorldFlagRequirement>(),
                                 new List<WorldFlagMutation>
                                 {
@@ -518,7 +1124,9 @@ namespace Weave.Presentation
         {
             var eventDefinition = ScriptableObject.CreateInstance<EventDefinition>();
             SerializedFieldUtility.SetPrivateField(eventDefinition, "eventId", "rowan_response");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "title", "ROWAN DECIDES");
             SerializedFieldUtility.SetPrivateField(eventDefinition, "prompt", "Rowan decides whether to share workshop supplies with the village.");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "sourceLabel", "Rowan");
             SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionMaker", rowan);
             SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionKey", RowanDecisionKey);
             SerializedFieldUtility.SetPrivateField(eventDefinition, "triggerConditions", new List<WorldFlagRequirement>());
@@ -533,7 +1141,7 @@ namespace Weave.Presentation
                         new List<OutcomeVariantDefinition>
                         {
                             CreateOutcome(
-                                "Because Mina helped him earlier, Rowan follows his developer-canon instinct and shares workshop supplies.",
+                                "Because Mina helped earlier, Rowan shares workshop supplies with the village.",
                                 new List<WorldFlagRequirement>
                                 {
                                     new WorldFlagRequirement { FlagId = RowanHelpedFlag, MustBePresent = true }
@@ -547,7 +1155,7 @@ namespace Weave.Presentation
                                     new CharacterResourceDelta { Character = mina, ResourceId = "tools", Amount = 1 }
                                 }),
                             CreateOutcome(
-                                "Rowan wants to share supplies, but without prior support the outcome variant falls back to a cautious result.",
+                                "Rowan considers sharing, but without earlier support he keeps the supplies at the workshop.",
                                 new List<WorldFlagRequirement>(),
                                 new List<WorldFlagMutation>
                                 {
@@ -561,7 +1169,7 @@ namespace Weave.Presentation
                         new List<OutcomeVariantDefinition>
                         {
                             CreateOutcome(
-                                "The player-canon override keeps Rowan focused on his workshop, so nothing changes in the village today.",
+                                "The player-canon override keeps Rowan focused on the workshop today.",
                                 new List<WorldFlagRequirement>(),
                                 new List<WorldFlagMutation>
                                 {
@@ -599,6 +1207,18 @@ namespace Weave.Presentation
             return outcome;
         }
 
+        private string GetCurrentSeasonName()
+        {
+            var seasonIndex = session.RunState.Calendar.SeasonIndex;
+
+            if (seasonIndex < 0 || seasonIndex >= seasonNames.Count)
+            {
+                return "Unknown";
+            }
+
+            return seasonNames[seasonIndex];
+        }
+
         private string GetLocationDisplayName(string locationId)
         {
             foreach (var location in locations)
@@ -628,6 +1248,58 @@ namespace Weave.Presentation
             }
 
             return taskId;
+        }
+
+        private static string GetTaskStateText(CharacterState characterState)
+        {
+            if (characterState.IsWorkingOnTask)
+            {
+                return "Working";
+            }
+
+            if (characterState.IsTravelling)
+            {
+                return "Travelling";
+            }
+
+            return "Idle";
+        }
+
+        private string GetTaskTimeText(CharacterState characterState)
+        {
+            if (characterState.IsWorkingOnTask)
+            {
+                var remaining = Mathf.Max(0f, characterState.TaskDurationSeconds - characterState.TaskElapsedSeconds);
+                return $"{Mathf.CeilToInt(remaining)}s remaining";
+            }
+
+            if (characterState.IsTravelling)
+            {
+                var destination = GetLocationDisplayName(characterState.TravelDestinationLocationId);
+                return $"En route to {destination}";
+            }
+
+            return "No active assignment";
+        }
+
+        private string GetEventTitle(EventDefinition eventDefinition)
+        {
+            if (!string.IsNullOrEmpty(eventDefinition.Title))
+            {
+                return eventDefinition.Title;
+            }
+
+            return string.IsNullOrEmpty(eventDefinition.EventId) ? "Decision" : eventDefinition.EventId;
+        }
+
+        private string GetEventSourceLabel(EventDefinition eventDefinition)
+        {
+            if (!string.IsNullOrEmpty(eventDefinition.SourceLabel))
+            {
+                return eventDefinition.SourceLabel;
+            }
+
+            return eventDefinition.DecisionMaker != null ? eventDefinition.DecisionMaker.DisplayName : string.Empty;
         }
 
         private string FormatWorldFlags()
@@ -676,16 +1348,157 @@ namespace Weave.Presentation
             return first ? "None" : builder.ToString();
         }
 
-        private static Sprite CreateMarkerSprite()
+        private static string FormatDuration(float totalSeconds)
+        {
+            var clamped = Mathf.Max(0, Mathf.CeilToInt(totalSeconds));
+            var minutes = clamped / 60;
+            var seconds = clamped % 60;
+            return $"{minutes:00}:{seconds:00}";
+        }
+
+        private static Sprite CreateSquareSprite()
         {
             var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false)
             {
-                filterMode = FilterMode.Point,
+                filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp
             };
             texture.SetPixel(0, 0, Color.white);
             texture.Apply();
             return Sprite.Create(texture, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f), 1f);
+        }
+
+        private static Sprite CreateCircleSprite(int size)
+        {
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            var radius = (size - 1) * 0.5f;
+            var center = new Vector2(radius, radius);
+
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var alpha = Vector2.Distance(new Vector2(x, y), center) <= radius ? 1f : 0f;
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+        }
+
+        private void EnsureEventSystem()
+        {
+            if (FindObjectOfType<EventSystem>() != null)
+            {
+                return;
+            }
+
+            var eventSystemObject = new GameObject("EventSystem");
+            eventSystemObject.AddComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
+            eventSystemObject.AddComponent<InputSystemUIInputModule>();
+#else
+            eventSystemObject.AddComponent<StandaloneInputModule>();
+#endif
+        }
+
+        private RectTransform CreateRect(string name, Transform parent)
+        {
+            var gameObject = new GameObject(name, typeof(RectTransform));
+            gameObject.transform.SetParent(parent, false);
+            return gameObject.GetComponent<RectTransform>();
+        }
+
+        private RectTransform CreatePanel(
+            string name,
+            Transform parent,
+            Vector2 anchorMin,
+            Vector2 anchorMax,
+            Vector2 offsetMin,
+            Vector2 offsetMax,
+            Color color)
+        {
+            var rect = CreateRect(name, parent);
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.offsetMin = offsetMin;
+            rect.offsetMax = offsetMax;
+
+            var image = rect.gameObject.AddComponent<Image>();
+            image.sprite = squareSprite;
+            image.type = Image.Type.Sliced;
+            image.color = color;
+            return rect;
+        }
+
+        private Text CreateText(
+            string name,
+            Transform parent,
+            Vector2 anchorMin,
+            Vector2 anchorMax,
+            Vector2 offsetMin,
+            Vector2 offsetMax,
+            string text,
+            int fontSize,
+            FontStyle fontStyle,
+            TextAnchor alignment,
+            Color color)
+        {
+            var rect = CreateRect(name, parent);
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.offsetMin = offsetMin;
+            rect.offsetMax = offsetMax;
+
+            var uiText = rect.gameObject.AddComponent<Text>();
+            uiText.font = uiFont;
+            uiText.fontSize = fontSize;
+            uiText.fontStyle = fontStyle;
+            uiText.alignment = alignment;
+            uiText.color = color;
+            uiText.text = text;
+            return uiText;
+        }
+
+        private (Button Button, Image Image, Text Label) CreateButton(
+            Transform parent,
+            string name,
+            string label,
+            Action onClick)
+        {
+            var rect = CreateRect(name, parent);
+            rect.sizeDelta = new Vector2(0f, 50f);
+
+            var layoutElement = rect.gameObject.AddComponent<LayoutElement>();
+            layoutElement.preferredHeight = 50f;
+
+            var image = rect.gameObject.AddComponent<Image>();
+            image.sprite = squareSprite;
+            image.color = new Color(0.18f, 0.22f, 0.27f, 1f);
+
+            var button = rect.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.onClick.AddListener(() => onClick?.Invoke());
+
+            var labelText = CreateText(
+                $"{name} Label",
+                rect,
+                Vector2.zero,
+                Vector2.one,
+                new Vector2(8f, 4f),
+                new Vector2(-8f, -4f),
+                label,
+                20,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                Color.white);
+
+            return (button, image, labelText);
         }
 
         private static void CreateTextLabel(Transform parent, string text, Vector3 localPosition, float characterSize, Color color)
@@ -734,6 +1547,17 @@ namespace Weave.Presentation
             }
 
             DestroyImmediate(target);
+        }
+
+        private static void DestroySprite(Sprite sprite)
+        {
+            if (sprite == null)
+            {
+                return;
+            }
+
+            DestroyObject(sprite.texture);
+            DestroyObject(sprite);
         }
 
         private T Track<T>(T target)

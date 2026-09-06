@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Weave.Data;
 using Weave.Runtime;
 
@@ -30,8 +31,38 @@ namespace Weave.Simulation
         public string SummaryText { get; }
     }
 
+    public readonly struct SimulationAdvanceResult
+    {
+        public SimulationAdvanceResult(
+            bool stateChanged,
+            bool dayAdvanced,
+            bool taskCompleted,
+            string completedTaskId,
+            bool taskInterrupted,
+            string interruptedTaskId,
+            EventDefinition completedTaskFollowUpEvent)
+        {
+            StateChanged = stateChanged;
+            DayAdvanced = dayAdvanced;
+            TaskCompleted = taskCompleted;
+            CompletedTaskId = completedTaskId;
+            TaskInterrupted = taskInterrupted;
+            InterruptedTaskId = interruptedTaskId;
+            CompletedTaskFollowUpEvent = completedTaskFollowUpEvent;
+        }
+
+        public bool StateChanged { get; }
+        public bool DayAdvanced { get; }
+        public bool TaskCompleted { get; }
+        public string CompletedTaskId { get; }
+        public bool TaskInterrupted { get; }
+        public string InterruptedTaskId { get; }
+        public EventDefinition CompletedTaskFollowUpEvent { get; }
+    }
+
     public sealed class DaySimulationService
     {
+        private const float MinimumDurationSeconds = 0.01f;
         private readonly CanonResolver canonResolver;
 
         public DaySimulationService(CanonResolver canonResolver)
@@ -48,7 +79,8 @@ namespace Weave.Simulation
             var runState = new RunState
             {
                 ControlledCharacterId = controlledCharacter != null ? controlledCharacter.CharacterId : string.Empty,
-                Calendar = new CalendarState(calendar.StartingYear)
+                Calendar = new CalendarState(calendar.StartingYear),
+                DayTimer = new DayTimerState(GetConfiguredDayDuration(calendar))
             };
 
             foreach (var location in locations)
@@ -115,7 +147,11 @@ namespace Weave.Simulation
             return task.RequiredLocation != null;
         }
 
-        public TravelCommand StartTravel(RunState runState, CharacterDefinition character, TaskDefinition task)
+        public TravelCommand StartTravel(
+            RunState runState,
+            CharacterDefinition character,
+            TaskDefinition task,
+            float travelDurationSeconds)
         {
             if (!IsTaskAvailable(character, task, runState))
             {
@@ -127,6 +163,10 @@ namespace Weave.Simulation
             characterState.TravelDestinationLocationId = task.RequiredLocation.LocationId;
             characterState.TravelProgress = 0f;
             characterState.CurrentTaskId = task.TaskId;
+            characterState.CurrentTaskPhase = TaskPhase.Travelling;
+            characterState.TravelDurationSeconds = Mathf.Max(travelDurationSeconds, MinimumDurationSeconds);
+            characterState.TaskElapsedSeconds = 0f;
+            characterState.TaskDurationSeconds = Mathf.Max(task.DurationSeconds, MinimumDurationSeconds);
 
             return new TravelCommand(
                 character.CharacterId,
@@ -136,29 +176,28 @@ namespace Weave.Simulation
 
         public bool TickTravel(RunState runState, string characterId, float step)
         {
-            if (step <= 0f)
+            if (runState == null || step <= 0f)
             {
                 return false;
             }
 
             var characterState = runState.GetCharacter(characterId);
 
-            if (characterState.TravelDestinationLocationId == characterState.CurrentLocationId &&
-                characterState.TravelProgress <= 0f)
+            if (!characterState.IsTravelling)
             {
                 return false;
             }
 
-            characterState.TravelProgress += step;
+            AdvanceTravel(characterState, step);
 
-            if (characterState.TravelProgress < 1f)
+            if (characterState.TravelProgress >= 1f)
             {
-                return true;
+                characterState.TravelProgress = 0f;
+                characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
+                characterState.TravelOriginLocationId = characterState.CurrentLocationId;
+                characterState.CurrentTaskPhase = TaskPhase.Working;
             }
 
-            characterState.TravelProgress = 0f;
-            characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
-            characterState.TravelOriginLocationId = characterState.CurrentLocationId;
             return true;
         }
 
@@ -172,7 +211,10 @@ namespace Weave.Simulation
             var actorState = runState.GetCharacter(actor.CharacterId);
 
             if (actorState.IsTravelling ||
-                actorState.CurrentLocationId != task.RequiredLocation.LocationId)
+                !actorState.IsWorkingOnTask ||
+                actorState.CurrentLocationId != task.RequiredLocation.LocationId ||
+                actorState.CurrentTaskId != task.TaskId ||
+                actorState.TaskElapsedSeconds < actorState.TaskDurationSeconds)
             {
                 return false;
             }
@@ -182,8 +224,122 @@ namespace Weave.Simulation
                 actorState.ChangeResource(change.ResourceId, change.Amount);
             }
 
-            actorState.CurrentTaskId = string.Empty;
+            ClearTaskState(actorState);
             return true;
+        }
+
+        public SimulationAdvanceResult AdvanceSimulation(
+            RunState runState,
+            GameCalendarDefinition calendar,
+            CharacterDefinition controlledCharacter,
+            IEnumerable<TaskDefinition> tasks,
+            float simulationSeconds)
+        {
+            if (runState == null || calendar == null || controlledCharacter == null || simulationSeconds <= 0f)
+            {
+                return default;
+            }
+
+            EnsureDayTimer(runState, calendar);
+
+            var stateChanged = false;
+            var dayAdvanced = false;
+            var taskCompleted = false;
+            var completedTaskId = string.Empty;
+            var taskInterrupted = false;
+            var interruptedTaskId = string.Empty;
+            EventDefinition followUpEvent = null;
+            var remainingSeconds = simulationSeconds;
+            var controlledState = runState.GetCharacter(controlledCharacter.CharacterId);
+
+            while (remainingSeconds > 0f)
+            {
+                var taskDefinition = GetTaskById(controlledState.CurrentTaskId, tasks);
+                var timeToTaskBoundary = GetTimeToTaskBoundary(controlledState);
+                var timeToDayBoundary = runState.DayTimer.RemainingSeconds;
+                var step = remainingSeconds;
+
+                if (timeToDayBoundary > 0f)
+                {
+                    step = Mathf.Min(step, timeToDayBoundary);
+                }
+
+                if (timeToTaskBoundary > 0f)
+                {
+                    step = Mathf.Min(step, timeToTaskBoundary);
+                }
+
+                if (step > 0f)
+                {
+                    runState.DayTimer.RemainingSeconds = Mathf.Max(0f, runState.DayTimer.RemainingSeconds - step);
+
+                    if (controlledState.IsTravelling)
+                    {
+                        var travelStep = step / Mathf.Max(controlledState.TravelDurationSeconds, MinimumDurationSeconds);
+                        AdvanceTravel(controlledState, travelStep);
+                    }
+                    else if (controlledState.IsWorkingOnTask)
+                    {
+                        controlledState.TaskElapsedSeconds = Mathf.Min(
+                            controlledState.TaskDurationSeconds,
+                            controlledState.TaskElapsedSeconds + step);
+                    }
+
+                    remainingSeconds -= step;
+                    stateChanged = true;
+                }
+
+                if (controlledState.IsTravelling &&
+                    controlledState.TravelProgress >= 1f)
+                {
+                    controlledState.TravelProgress = 0f;
+                    controlledState.CurrentLocationId = controlledState.TravelDestinationLocationId;
+                    controlledState.TravelOriginLocationId = controlledState.CurrentLocationId;
+                    controlledState.CurrentTaskPhase = TaskPhase.Working;
+                    stateChanged = true;
+                    continue;
+                }
+
+                if (controlledState.IsWorkingOnTask &&
+                    controlledState.TaskElapsedSeconds >= controlledState.TaskDurationSeconds &&
+                    taskDefinition != null)
+                {
+                    if (ResolveTask(runState, controlledCharacter, taskDefinition))
+                    {
+                        taskCompleted = true;
+                        completedTaskId = taskDefinition.TaskId;
+                        followUpEvent = taskDefinition.FollowUpEvent;
+                        stateChanged = true;
+                    }
+
+                    continue;
+                }
+
+                if (runState.DayTimer.RemainingSeconds <= 0f)
+                {
+                    if (controlledState.IsWorkingOnTask && !string.IsNullOrEmpty(controlledState.CurrentTaskId))
+                    {
+                        taskInterrupted = true;
+                        interruptedTaskId = controlledState.CurrentTaskId;
+                    }
+
+                    AdvanceDay(runState, calendar);
+                    dayAdvanced = true;
+                    stateChanged = true;
+                    continue;
+                }
+
+                break;
+            }
+
+            return new SimulationAdvanceResult(
+                stateChanged,
+                dayAdvanced,
+                taskCompleted,
+                completedTaskId,
+                taskInterrupted,
+                interruptedTaskId,
+                followUpEvent);
         }
 
         public EventResolution ResolveNpcEvent(
@@ -242,13 +398,76 @@ namespace Weave.Simulation
         {
             foreach (var characterState in runState.Characters.Values)
             {
-                characterState.CurrentTaskId = string.Empty;
+                ClearTaskState(characterState);
                 characterState.TravelProgress = 0f;
                 characterState.TravelOriginLocationId = characterState.CurrentLocationId;
                 characterState.TravelDestinationLocationId = characterState.CurrentLocationId;
+                characterState.TravelDurationSeconds = 0f;
             }
 
             runState.Calendar.Advance(calendar);
+            EnsureDayTimer(runState, calendar);
+            runState.DayTimer.Reset(GetConfiguredDayDuration(calendar));
+        }
+
+        private static void EnsureDayTimer(RunState runState, GameCalendarDefinition calendar)
+        {
+            if (runState.DayTimer == null)
+            {
+                runState.DayTimer = new DayTimerState(GetConfiguredDayDuration(calendar));
+            }
+        }
+
+        private static float GetConfiguredDayDuration(GameCalendarDefinition calendar)
+        {
+            return Mathf.Max(calendar != null ? calendar.DayDurationSeconds : 0f, 1f);
+        }
+
+        private static void AdvanceTravel(CharacterState characterState, float step)
+        {
+            characterState.TravelProgress = Mathf.Min(1f, characterState.TravelProgress + step);
+        }
+
+        private static float GetTimeToTaskBoundary(CharacterState characterState)
+        {
+            if (characterState.IsTravelling)
+            {
+                var remainingProgress = Mathf.Max(0f, 1f - characterState.TravelProgress);
+                return remainingProgress * Mathf.Max(characterState.TravelDurationSeconds, MinimumDurationSeconds);
+            }
+
+            if (characterState.IsWorkingOnTask)
+            {
+                return Mathf.Max(0f, characterState.TaskDurationSeconds - characterState.TaskElapsedSeconds);
+            }
+
+            return float.PositiveInfinity;
+        }
+
+        private static TaskDefinition GetTaskById(string taskId, IEnumerable<TaskDefinition> tasks)
+        {
+            if (string.IsNullOrEmpty(taskId) || tasks == null)
+            {
+                return null;
+            }
+
+            foreach (var task in tasks)
+            {
+                if (task != null && task.TaskId == taskId)
+                {
+                    return task;
+                }
+            }
+
+            return null;
+        }
+
+        private static void ClearTaskState(CharacterState characterState)
+        {
+            characterState.CurrentTaskId = string.Empty;
+            characterState.CurrentTaskPhase = TaskPhase.None;
+            characterState.TaskElapsedSeconds = 0f;
+            characterState.TaskDurationSeconds = 0f;
         }
 
         private static bool ConditionsMatch(RunState runState, IReadOnlyList<WorldFlagRequirement> requirements)

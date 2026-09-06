@@ -12,15 +12,22 @@ namespace Weave.Simulation
         [SerializeField] private List<LocationDefinition> locations = new List<LocationDefinition>();
         [SerializeField] private List<CharacterDefinition> characters = new List<CharacterDefinition>();
         [SerializeField] private List<TaskDefinition> tasks = new List<TaskDefinition>();
+        [SerializeField] private float travelDurationSeconds = 10f;
 
         private readonly DaySimulationService simulation = new DaySimulationService(new CanonResolver());
         private RunState runState;
+        private SimulationSpeedMode selectedSpeedMode = SimulationSpeedMode.Normal;
+        private int pauseOverrideDepth;
 
         public event Action StateChanged;
+        public event Action<SimulationAdvanceResult> SimulationAdvanced;
 
         public RunState RunState => runState;
         public IReadOnlyList<LocationDefinition> Locations => locations;
         public IReadOnlyList<CharacterDefinition> Characters => characters;
+        public SimulationSpeedMode SelectedSpeedMode => selectedSpeedMode;
+        public SimulationSpeedMode EffectiveSpeedMode =>
+            pauseOverrideDepth > 0 ? SimulationSpeedMode.Paused : selectedSpeedMode;
 
         public void Configure(
             GameCalendarDefinition configuredCalendar,
@@ -43,7 +50,54 @@ namespace Weave.Simulation
         public void StartRun(CharacterDefinition controlledCharacter)
         {
             runState = simulation.CreateInitialState(calendarDefinition, locations, characters, controlledCharacter);
+            pauseOverrideDepth = 0;
+            selectedSpeedMode = SimulationSpeedMode.Normal;
             NotifyStateChanged();
+        }
+
+        public void SetSimulationSpeed(SimulationSpeedMode speedMode)
+        {
+            if (selectedSpeedMode == speedMode)
+            {
+                return;
+            }
+
+            selectedSpeedMode = speedMode;
+            NotifyStateChanged();
+        }
+
+        public void PushPauseOverride()
+        {
+            pauseOverrideDepth++;
+            NotifyStateChanged();
+        }
+
+        public void PopPauseOverride()
+        {
+            if (pauseOverrideDepth <= 0)
+            {
+                return;
+            }
+
+            pauseOverrideDepth--;
+            NotifyStateChanged();
+        }
+
+        public float GetEffectiveSimulationSpeed()
+        {
+            switch (EffectiveSpeedMode)
+            {
+                case SimulationSpeedMode.FastForward:
+                    return calendarDefinition != null
+                        ? Mathf.Max(calendarDefinition.FastForwardSimulationSpeed, 0f)
+                        : 0f;
+                case SimulationSpeedMode.Normal:
+                    return calendarDefinition != null
+                        ? Mathf.Max(calendarDefinition.NormalSimulationSpeed, 0f)
+                        : 0f;
+                default:
+                    return 0f;
+            }
         }
 
         public List<TaskDefinition> GetPlayerTasks()
@@ -63,7 +117,11 @@ namespace Weave.Simulation
                 return default;
             }
 
-            var command = simulation.StartTravel(runState, GetControlledCharacter(), task);
+            var command = simulation.StartTravel(
+                runState,
+                GetControlledCharacter(),
+                task,
+                Mathf.Max(travelDurationSeconds, 0.01f));
             NotifyStateChanged();
             return command;
         }
@@ -92,6 +150,36 @@ namespace Weave.Simulation
             {
                 NotifyStateChanged();
             }
+        }
+
+        public SimulationAdvanceResult AdvanceSimulation(float realSeconds)
+        {
+            if (runState == null || realSeconds <= 0f)
+            {
+                return default;
+            }
+
+            var simulationSeconds = realSeconds * GetEffectiveSimulationSpeed();
+
+            if (simulationSeconds <= 0f)
+            {
+                return default;
+            }
+
+            var result = simulation.AdvanceSimulation(
+                runState,
+                calendarDefinition,
+                GetControlledCharacter(),
+                tasks,
+                simulationSeconds);
+
+            if (result.StateChanged)
+            {
+                NotifyStateChanged();
+                SimulationAdvanced?.Invoke(result);
+            }
+
+            return result;
         }
 
         public EventResolution ResolvePlayerEvent(EventDefinition eventDefinition, string selectedOptionId)
@@ -161,8 +249,18 @@ namespace Weave.Simulation
             return Color.white;
         }
 
+        private void Update()
+        {
+            AdvanceSimulation(Time.unscaledDeltaTime);
+        }
+
         private CharacterDefinition GetControlledCharacter()
         {
+            if (runState == null)
+            {
+                return null;
+            }
+
             foreach (var character in characters)
             {
                 if (character.CharacterId == runState.ControlledCharacterId)

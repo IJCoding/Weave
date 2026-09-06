@@ -12,6 +12,7 @@ namespace Weave.Data
         [SerializeField] private List<CharacterDefinition> eligibleCharacters = new List<CharacterDefinition>();
         [SerializeField] private List<string> requiredWorldFlags = new List<string>();
         [SerializeField] private List<string> blockedWorldFlags = new List<string>();
+        [SerializeField] private float durationSeconds = 25f;
         [SerializeField] private List<ResourceAmount> actorResourceChanges = new List<ResourceAmount>();
         [SerializeField] private EventDefinition followUpEvent;
 
@@ -21,6 +22,7 @@ namespace Weave.Data
         public IReadOnlyList<CharacterDefinition> EligibleCharacters => eligibleCharacters;
         public IReadOnlyList<string> RequiredWorldFlags => requiredWorldFlags;
         public IReadOnlyList<string> BlockedWorldFlags => blockedWorldFlags;
+        public float DurationSeconds => durationSeconds;
         public IReadOnlyList<ResourceAmount> ActorResourceChanges => actorResourceChanges;
         public EventDefinition FollowUpEvent => followUpEvent;
 
