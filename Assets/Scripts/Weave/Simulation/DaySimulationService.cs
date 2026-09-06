@@ -272,7 +272,11 @@ namespace Weave.Simulation
                 return default;
             }
 
-            var characterState = runState.GetCharacter(character.CharacterId);
+            if (!runState.Characters.TryGetValue(character.CharacterId, out var characterState) || characterState == null)
+            {
+                return default;
+            }
+
             if (characterState.IsTravelling ||
                 characterState.IsWorkingOnTask ||
                 characterState.CurrentLocationId == destinationLocationId)

@@ -1924,6 +1924,7 @@ namespace Weave.Presentation
         private string FormatResourceLines(IReadOnlyDictionary<string, int> resourcesById)
         {
             var builder = new StringBuilder();
+            var orderedResources = new List<KeyValuePair<string, int>>();
 
             foreach (var resource in resourcesById)
             {
@@ -1932,6 +1933,19 @@ namespace Weave.Presentation
                     continue;
                 }
 
+                orderedResources.Add(resource);
+            }
+
+            orderedResources.Sort((left, right) =>
+            {
+                var leftName = session.GetResourceDisplayName(left.Key);
+                var rightName = session.GetResourceDisplayName(right.Key);
+                var byName = string.Compare(leftName, rightName, StringComparison.Ordinal);
+                return byName != 0 ? byName : string.Compare(left.Key, right.Key, StringComparison.Ordinal);
+            });
+
+            foreach (var resource in orderedResources)
+            {
                 if (builder.Length > 0)
                 {
                     builder.Append('\n');
