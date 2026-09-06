@@ -634,11 +634,12 @@ namespace Weave.Simulation
 
         private static void CompleteTravelPhase(CharacterState characterState)
         {
+            var originLocationId = characterState.TravelOriginLocationId;
             characterState.TravelProgress = 0f;
             characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
             characterState.TravelOriginLocationId = characterState.CurrentLocationId;
 
-            DepositCarriedResourcesIfAtHome(characterState);
+            DepositCarriedResourcesIfArrivedHomeFromAway(characterState, originLocationId);
 
             if (characterState.CompleteTaskOnArrival)
             {
@@ -649,10 +650,11 @@ namespace Weave.Simulation
             characterState.CurrentTaskPhase = TaskPhase.Working;
         }
 
-        private static void DepositCarriedResourcesIfAtHome(CharacterState characterState)
+        private static void DepositCarriedResourcesIfArrivedHomeFromAway(CharacterState characterState, string originLocationId)
         {
             if (string.IsNullOrEmpty(characterState.HomeLocationId) ||
-                characterState.CurrentLocationId != characterState.HomeLocationId)
+                characterState.CurrentLocationId != characterState.HomeLocationId ||
+                originLocationId == characterState.HomeLocationId)
             {
                 return;
             }

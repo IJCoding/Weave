@@ -490,6 +490,8 @@ namespace Weave.Presentation
                     new Color(0.35f, 0.74f, 0.48f, 0.35f))
                     .GetComponent<Image>();
                 fill.raycastTarget = false;
+                var fillLayout = fill.gameObject.AddComponent<LayoutElement>();
+                fillLayout.ignoreLayout = true;
                 fill.rectTransform.SetAsFirstSibling();
                 fill.gameObject.SetActive(false);
                 taskButtons.Add(new TaskButtonView
