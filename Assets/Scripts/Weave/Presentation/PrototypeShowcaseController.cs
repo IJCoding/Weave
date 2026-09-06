@@ -125,6 +125,7 @@ namespace Weave.Presentation
             session.StartRun(controlledCharacter);
             RefreshPresentation();
             UpdateCharacterVisuals();
+            RebuildActivityConsoleFromSession();
         }
 
         private void OnDestroy()
@@ -329,8 +330,7 @@ namespace Weave.Presentation
                 : controlledState.IsWorkingOnTask
                     ? "Action in progress"
                     : "Available Actions";
-            RebuildTaskButtons(controlledState, actionProgress);
-            RebuildActivityConsole();
+            RefreshTaskButtons(controlledState, actionProgress);
             RefreshLocationVisuals(controlledState);
             RefreshSpeedButtons();
         }
@@ -374,17 +374,8 @@ namespace Weave.Presentation
                     : new Color(0.18f, 0.22f, 0.27f, 1f);
         }
 
-        private void RebuildTaskButtons(CharacterState controlledState, ActionProgressSummary actionProgress)
+        private void RefreshTaskButtons(CharacterState controlledState, ActionProgressSummary actionProgress)
         {
-            foreach (var view in taskButtons)
-            {
-                if (view?.Root != null)
-                {
-                    Destroy(view.Root.gameObject);
-                }
-            }
-
-            taskButtons.Clear();
             var actions = controlledState.IsTravelling || controlledState.IsWorkingOnTask
                 ? new List<TaskDefinition>()
                 : session.GetCurrentLocationActions();
@@ -402,14 +393,19 @@ namespace Weave.Presentation
                     activeTask = CreatePlaceholderTask(controlledState.CurrentTaskId);
                 }
 
-                CreateTaskButton(activeTask, actionProgress, true, true);
+                EnsureTaskButtonCount(1);
+                UpdateTaskButton(taskButtons[0], activeTask, actionProgress, true, true);
+                HideUnusedTaskButtons(1);
                 return;
             }
 
-            foreach (var action in actions)
+            EnsureTaskButtonCount(actions.Count);
+            for (var index = 0; index < actions.Count; index++)
             {
-                CreateTaskButton(action, session.GetTaskPlanPreview(controlledCharacter.CharacterId, action), true, false);
+                UpdateTaskButton(taskButtons[index], actions[index], session.GetTaskPlanPreview(controlledCharacter.CharacterId, actions[index]), true, false);
             }
+
+            HideUnusedTaskButtons(actions.Count);
         }
 
         private TaskDefinition CreatePlaceholderTask(string taskId)
@@ -439,35 +435,54 @@ namespace Weave.Presentation
             return null;
         }
 
-        private void CreateTaskButton(TaskDefinition task, ActionProgressSummary progress, bool interactable, bool showProgress)
+        private void EnsureTaskButtonCount(int requiredCount)
         {
-            var buttonView = CreateButton(taskButtonContainer, task.DisplayName, task.DisplayName, () => AssignTask(task));
-            buttonView.Button.interactable = !showProgress &&
+            while (taskButtons.Count < requiredCount)
+            {
+                var buttonView = CreateButton(taskButtonContainer, "Task Button", string.Empty, null);
+                var phaseContainer = CreatePanel("Task Phase", buttonView.Button.transform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(10f, 6f), new Vector2(-10f, 16f), new Color(0.09f, 0.11f, 0.14f, 1f));
+                phaseContainer.GetComponent<Image>().raycastTarget = false;
+                var overallFill = CreatePanel("Task Overall", phaseContainer, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero, new Color(0.24f, 0.30f, 0.36f, 0.65f)).GetComponent<Image>();
+                overallFill.raycastTarget = false;
+                var foregroundFill = CreatePanel("Task Current", phaseContainer, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero, new Color(0.24f, 0.82f, 0.36f, 1f)).GetComponent<Image>();
+                foregroundFill.raycastTarget = false;
+                taskButtons.Add(new TaskButtonView
+                {
+                    Button = buttonView.Button,
+                    Root = buttonView.Button.GetComponent<RectTransform>(),
+                    PhaseContainer = phaseContainer,
+                    OverallFill = overallFill,
+                    ForegroundFill = foregroundFill,
+                    Label = buttonView.Label
+                });
+            }
+        }
+
+        private void UpdateTaskButton(TaskButtonView taskButton, TaskDefinition task, ActionProgressSummary progress, bool interactable, bool showProgress)
+        {
+            taskButton.Task = task;
+            taskButton.Root.gameObject.SetActive(true);
+            taskButton.Button.onClick.RemoveAllListeners();
+            taskButton.Button.onClick.AddListener(() => AssignTask(task));
+            taskButton.Button.interactable = !showProgress &&
                 interactable &&
                 !session.RunState.GetCharacter(controlledCharacter.CharacterId).IsTravelling &&
                 !session.RunState.GetCharacter(controlledCharacter.CharacterId).IsWorkingOnTask;
-            var phaseContainer = CreatePanel($"{task.DisplayName} Phase", buttonView.Button.transform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(10f, 6f), new Vector2(-10f, 16f), new Color(0.09f, 0.11f, 0.14f, 1f));
-            phaseContainer.GetComponent<Image>().raycastTarget = false;
-            var overallFill = CreatePanel($"{task.DisplayName} Overall", phaseContainer, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero, new Color(0.24f, 0.30f, 0.36f, 0.65f)).GetComponent<Image>();
-            overallFill.raycastTarget = false;
-            var foregroundFill = CreatePanel($"{task.DisplayName} Current", phaseContainer, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero, GetPhaseColor(progress.CurrentPhase.PhaseType)).GetComponent<Image>();
-            foregroundFill.raycastTarget = false;
-            buttonView.Label.alignment = TextAnchor.UpperLeft;
-            buttonView.Label.text = $"{task.DisplayName} ({Mathf.RoundToInt(task.DurationSeconds)}s)\n{GetStatusLine(progress, task, showProgress)}";
-            SetAnchoredHorizontal(overallFill.rectTransform, 0f, showProgress ? progress.OverallProgress : 0f);
-            SetAnchoredHorizontal(foregroundFill.rectTransform, 0f, showProgress ? progress.CurrentPhaseProgress : 0f);
-            overallFill.gameObject.SetActive(progress.HasPhases && progress.OverallProgress > 0f);
-            foregroundFill.gameObject.SetActive(showProgress && progress.HasPhases && progress.CurrentPhaseProgress > 0f);
-            taskButtons.Add(new TaskButtonView
+            taskButton.Label.alignment = TextAnchor.UpperLeft;
+            taskButton.Label.text = $"{task.DisplayName} ({Mathf.RoundToInt(task.DurationSeconds)}s)\n{GetStatusLine(progress, task, showProgress)}";
+            taskButton.ForegroundFill.color = GetPhaseColor(progress.CurrentPhase.PhaseType);
+            SetAnchoredHorizontal(taskButton.OverallFill.rectTransform, 0f, showProgress ? progress.OverallProgress : 0f);
+            SetAnchoredHorizontal(taskButton.ForegroundFill.rectTransform, 0f, showProgress ? progress.CurrentPhaseProgress : 0f);
+            taskButton.OverallFill.gameObject.SetActive(progress.HasPhases && progress.OverallProgress > 0f);
+            taskButton.ForegroundFill.gameObject.SetActive(showProgress && progress.HasPhases && progress.CurrentPhaseProgress > 0f);
+        }
+
+        private void HideUnusedTaskButtons(int visibleCount)
+        {
+            for (var index = visibleCount; index < taskButtons.Count; index++)
             {
-                Task = task,
-                Button = buttonView.Button,
-                Root = buttonView.Button.GetComponent<RectTransform>(),
-                PhaseContainer = phaseContainer,
-                OverallFill = overallFill,
-                ForegroundFill = foregroundFill,
-                Label = buttonView.Label
-            });
+                taskButtons[index].Root.gameObject.SetActive(false);
+            }
         }
 
         private string GetStatusLine(ActionProgressSummary progress, TaskDefinition task, bool showProgress)
@@ -505,10 +520,10 @@ namespace Weave.Presentation
 
         private void HandleSimulationLogEntryAdded(SimulationLogEntry _)
         {
-            RebuildActivityConsole();
+            AppendLatestLogEntry();
         }
 
-        private void RebuildActivityConsole()
+        private void RebuildActivityConsoleFromSession()
         {
             activityLogEntries.Clear();
             foreach (var entry in session.SimulationLogEntries)
@@ -516,6 +531,41 @@ namespace Weave.Presentation
                 activityLogEntries.Add(entry);
             }
 
+            RewriteActivityConsoleText();
+        }
+
+        private void AppendLatestLogEntry()
+        {
+            if (session == null)
+            {
+                return;
+            }
+
+            if (session.SimulationLogEntries.Count == 0)
+            {
+                activityLogEntries.Clear();
+                activityConsoleText.text = string.Empty;
+                return;
+            }
+
+            if (session.SimulationLogEntries.Count != activityLogEntries.Count + 1)
+            {
+                RebuildActivityConsoleFromSession();
+                return;
+            }
+
+            var entry = session.SimulationLogEntries[session.SimulationLogEntries.Count - 1];
+            activityLogEntries.Add(entry);
+            if (activityLogEntries.Count > 1)
+            {
+                activityConsoleText.text += "\n";
+            }
+
+            activityConsoleText.text += $"D{entry.DayOfSeason:00} {FormatDuration(entry.DayElapsedSeconds)} — [{entry.Category}] {entry.Message}";
+        }
+
+        private void RewriteActivityConsoleText()
+        {
             var builder = new StringBuilder();
             for (var index = 0; index < activityLogEntries.Count; index++)
             {
@@ -727,7 +777,7 @@ namespace Weave.Presentation
             return builder.ToString();
         }
 
-        private string FormatResourceLines(Dictionary<string, int> resources)
+        private string FormatResourceLines(IReadOnlyDictionary<string, int> resources)
         {
             if (resources == null || resources.Count == 0)
             {

@@ -139,6 +139,11 @@ namespace Weave.World
             GetComponentsInChildren(true, roadTiles);
             GetComponentsInChildren(true, npcs);
 
+            var duplicateLocationIds = new HashSet<string>();
+            var duplicateNpcIds = new HashSet<string>();
+            var seenLocationIds = new HashSet<string>();
+            var seenNpcIds = new HashSet<string>();
+
             foreach (var location in locations)
             {
                 if (location == null || string.IsNullOrWhiteSpace(location.LocationId))
@@ -146,9 +151,9 @@ namespace Weave.World
                     continue;
                 }
 
-                if (!locationsById.ContainsKey(location.LocationId))
+                if (!seenLocationIds.Add(location.LocationId))
                 {
-                    locationsById.Add(location.LocationId, location);
+                    duplicateLocationIds.Add(location.LocationId);
                 }
             }
 
@@ -159,10 +164,34 @@ namespace Weave.World
                     continue;
                 }
 
-                if (!npcsById.ContainsKey(npc.CharacterId))
+                if (!seenNpcIds.Add(npc.CharacterId))
                 {
-                    npcsById.Add(npc.CharacterId, npc);
+                    duplicateNpcIds.Add(npc.CharacterId);
                 }
+            }
+
+            foreach (var location in locations)
+            {
+                if (location == null ||
+                    string.IsNullOrWhiteSpace(location.LocationId) ||
+                    duplicateLocationIds.Contains(location.LocationId))
+                {
+                    continue;
+                }
+
+                locationsById[location.LocationId] = location;
+            }
+
+            foreach (var npc in npcs)
+            {
+                if (npc == null ||
+                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
+                    duplicateNpcIds.Contains(npc.CharacterId))
+                {
+                    continue;
+                }
+
+                npcsById[npc.CharacterId] = npc;
             }
 
             RebuildRuntimeLocations();
