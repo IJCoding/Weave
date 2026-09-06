@@ -756,11 +756,19 @@ namespace Weave.Simulation
                     continue;
                 }
 
-                var verb = taskDefinition.RewardsAddedToCarriedResources ? "gathered" : "stored";
+                if (taskDefinition.RewardsAddedToCarriedResources)
+                {
+                    logSignals.Add(new SimulationLogSignal(
+                        SimulationLogCategory.Resource,
+                        character.CharacterId,
+                        $"{character.DisplayName} gathered {change.Amount} {change.ResourceId} and is carrying it."));
+                    continue;
+                }
+
                 logSignals.Add(new SimulationLogSignal(
                     SimulationLogCategory.Resource,
                     character.CharacterId,
-                    $"{character.DisplayName} {verb} {change.Amount} {change.ResourceId}."));
+                    $"{character.DisplayName} stored {change.Amount} {change.ResourceId}."));
             }
         }
 

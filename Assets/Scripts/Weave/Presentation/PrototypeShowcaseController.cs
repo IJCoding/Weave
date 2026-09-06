@@ -93,6 +93,7 @@ namespace Weave.Presentation
         private List<string> seasonNames = new List<string>();
         private bool popupOwnsPause;
         private bool suppressPresentationRefresh;
+        private bool pendingActivityScrollToBottom;
 
         private Canvas runtimeCanvas;
         private RectTransform compositionRoot;
@@ -156,6 +157,12 @@ namespace Weave.Presentation
         {
             ApplyFixedAspect();
             UpdateCharacterMarkers();
+
+            if (pendingActivityScrollToBottom && activityScrollRect != null)
+            {
+                activityScrollRect.verticalNormalizedPosition = 0f;
+                pendingActivityScrollToBottom = false;
+            }
         }
 
         private void ConfigureCamera()
@@ -923,12 +930,7 @@ namespace Weave.Presentation
             }
 
             activityConsoleText.text = builder.ToString();
-            Canvas.ForceUpdateCanvases();
-
-            if (activityScrollRect != null)
-            {
-                activityScrollRect.verticalNormalizedPosition = 0f;
-            }
+            pendingActivityScrollToBottom = true;
         }
 
         private string FormatActivityEntry(SimulationLogEntry entry)
