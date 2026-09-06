@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3196dd0ccedc90e4dbc7f85a4b467bea, type: 3}
+  m_Name: Tend Fields
+  m_EditorClassIdentifier: Assembly-CSharp::Weave.Data.TaskDefinition
+  taskId: tend_fields
+  displayName: Tend Fields
+  requiredLocation: {fileID: 0}
+  requiredLocationId: 
+  eligibleCharacters: []
+  requiredWorldFlags: []
+  blockedWorldFlags: []
+  durationSeconds: 16
+  actorResourceChanges:
+  - ResourceId: grain
+    Amount: 2
+  rewardsAddedToCarriedResources: 1
+  completeOnArrival: 0
+  unavailableWhenAlreadyAtRequiredLocation: 0
+  followUpEvent: {fileID: 0}

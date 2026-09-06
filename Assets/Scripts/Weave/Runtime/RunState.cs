@@ -79,6 +79,71 @@ namespace Weave.Runtime
     }
 
     [Serializable]
+    public sealed class TravelRouteState
+    {
+        [NonSerialized] public List<Vector2> Waypoints = new List<Vector2>();
+        [NonSerialized] public List<float> CumulativeDurations = new List<float>();
+        [NonSerialized] public float TotalDurationSeconds;
+
+        public void Set(IReadOnlyList<Vector2> waypoints, IReadOnlyList<float> cumulativeDurations, float totalDurationSeconds)
+        {
+            Waypoints.Clear();
+            CumulativeDurations.Clear();
+
+            if (waypoints != null)
+            {
+                Waypoints.AddRange(waypoints);
+            }
+
+            if (cumulativeDurations != null)
+            {
+                CumulativeDurations.AddRange(cumulativeDurations);
+            }
+
+            TotalDurationSeconds = Mathf.Max(totalDurationSeconds, 0f);
+        }
+
+        public void Clear()
+        {
+            Waypoints.Clear();
+            CumulativeDurations.Clear();
+            TotalDurationSeconds = 0f;
+        }
+
+        public Vector2 Evaluate(float normalizedProgress)
+        {
+            if (Waypoints.Count == 0)
+            {
+                return Vector2.zero;
+            }
+
+            if (Waypoints.Count == 1 || TotalDurationSeconds <= Mathf.Epsilon)
+            {
+                return Waypoints[Waypoints.Count - 1];
+            }
+
+            var elapsed = Mathf.Clamp01(normalizedProgress) * TotalDurationSeconds;
+
+            for (var index = 1; index < Waypoints.Count; index++)
+            {
+                var previousTime = index - 1 < CumulativeDurations.Count ? CumulativeDurations[index - 1] : 0f;
+                var currentTime = index < CumulativeDurations.Count ? CumulativeDurations[index] : TotalDurationSeconds;
+
+                if (elapsed > currentTime && index < Waypoints.Count - 1)
+                {
+                    continue;
+                }
+
+                var segmentDuration = Mathf.Max(currentTime - previousTime, 0.0001f);
+                var segmentProgress = Mathf.Clamp01((elapsed - previousTime) / segmentDuration);
+                return Vector2.Lerp(Waypoints[index - 1], Waypoints[index], segmentProgress);
+            }
+
+            return Waypoints[Waypoints.Count - 1];
+        }
+    }
+
+    [Serializable]
     public sealed class CharacterState
     {
         public string CharacterId;
@@ -95,11 +160,12 @@ namespace Weave.Runtime
         public bool CompleteTaskOnArrival;
         [NonSerialized] public Dictionary<string, int> StoredResources = new Dictionary<string, int>();
         [NonSerialized] public Dictionary<string, int> CarriedResources = new Dictionary<string, int>();
+        [NonSerialized] public TravelRouteState TravelRoute = new TravelRouteState();
 
         public CharacterState(CharacterDefinition definition)
         {
             CharacterId = definition.CharacterId;
-            HomeLocationId = definition.HomeLocation != null ? definition.HomeLocation.LocationId : string.Empty;
+            HomeLocationId = definition.HomeLocationId;
             CurrentLocationId = HomeLocationId;
             TravelOriginLocationId = CurrentLocationId;
             TravelDestinationLocationId = string.Empty;
