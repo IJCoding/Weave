@@ -453,9 +453,28 @@ namespace Weave.Simulation
             NotifyStateChanged();
         }
 
-        public void PublishSimulationLog(SimulationLogCategory category, string characterId, string message)
+        public void LogDecisionRequested(EventDefinition eventDefinition)
         {
-            AppendLog(category, characterId, message);
+            if (runState == null || eventDefinition == null)
+            {
+                return;
+            }
+
+            var actorId = eventDefinition.DecisionMaker != null
+                ? eventDefinition.DecisionMaker.CharacterId
+                : runState.ControlledCharacterId;
+            var sourceLabel = !string.IsNullOrEmpty(eventDefinition.SourceLabel)
+                ? eventDefinition.SourceLabel
+                : eventDefinition.DecisionMaker != null
+                    ? eventDefinition.DecisionMaker.DisplayName
+                    : "System";
+            var title = string.IsNullOrEmpty(eventDefinition.Title)
+                ? eventDefinition.EventId
+                : eventDefinition.Title;
+            AppendLog(
+                SimulationLogCategory.Event,
+                actorId,
+                $"{sourceLabel} requested a decision: {title}.");
         }
 
         public Vector2 GetCharacterMapPosition(string characterId)

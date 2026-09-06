@@ -987,17 +987,15 @@ namespace Weave.Presentation
             popupSourceText.gameObject.SetActive(!string.IsNullOrEmpty(popupSourceText.text));
             popupBodyText.text = eventDefinition.Prompt;
             var decisionMaker = eventDefinition.DecisionMaker != null ? eventDefinition.DecisionMaker.CharacterId : controlledCharacter.CharacterId;
+            var currentDay = session?.RunState?.Calendar != null ? session.RunState.Calendar.DayOfSeason : 0;
             var eventRequestKey = string.IsNullOrEmpty(eventDefinition.EventId)
                 ? GetEventTitle(eventDefinition)
                 : eventDefinition.EventId;
+            eventRequestKey = $"{currentDay}:{decisionMaker}:{eventRequestKey}";
             if (!loggedDecisionRequests.Contains(eventRequestKey))
             {
                 loggedDecisionRequests.Add(eventRequestKey);
-                var sourceLabel = string.IsNullOrEmpty(popupSourceText.text) ? "System" : popupSourceText.text;
-                session.PublishSimulationLog(
-                    SimulationLogCategory.Event,
-                    decisionMaker,
-                    $"{sourceLabel} requested a decision: {GetEventTitle(eventDefinition)}.");
+                session.LogDecisionRequested(eventDefinition);
             }
             ClearPopupChoices();
 
