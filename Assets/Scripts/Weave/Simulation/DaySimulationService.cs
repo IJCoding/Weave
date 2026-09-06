@@ -158,11 +158,14 @@ namespace Weave.Simulation
 
         public void ResolveTask(RunState runState, CharacterDefinition actor, TaskDefinition task)
         {
+            if (!IsTaskAvailable(actor, task, runState))
+            {
+                return;
+            }
+
             var actorState = runState.GetCharacter(actor.CharacterId);
 
-            if (task == null ||
-                task.RequiredLocation == null ||
-                actorState.IsTravelling ||
+            if (actorState.IsTravelling ||
                 actorState.CurrentLocationId != task.RequiredLocation.LocationId)
             {
                 return;

@@ -40,6 +40,11 @@ namespace Weave.Simulation
 
         public TravelCommand AssignPlayerTask(TaskDefinition task)
         {
+            if (runState == null)
+            {
+                return default;
+            }
+
             var command = simulation.StartTravel(runState, GetControlledCharacter(), task);
             NotifyStateChanged();
             return command;
@@ -58,12 +63,22 @@ namespace Weave.Simulation
 
         public void ResolvePlayerTask(TaskDefinition task)
         {
+            if (runState == null)
+            {
+                return;
+            }
+
             simulation.ResolveTask(runState, GetControlledCharacter(), task);
             NotifyStateChanged();
         }
 
         public EventResolution ResolvePlayerEvent(EventDefinition eventDefinition, string selectedOptionId)
         {
+            if (runState == null)
+            {
+                return default;
+            }
+
             var resolution = simulation.ResolveEvent(runState, eventDefinition, selectedOptionId);
             NotifyStateChanged();
             return resolution;
@@ -71,6 +86,11 @@ namespace Weave.Simulation
 
         public EventResolution ResolveNpcEvent(PlayerCanonState playerCanon, EventDefinition eventDefinition)
         {
+            if (runState == null)
+            {
+                return default;
+            }
+
             var resolution = simulation.ResolveNpcEvent(runState, playerCanon, eventDefinition);
             NotifyStateChanged();
             return resolution;
@@ -78,6 +98,11 @@ namespace Weave.Simulation
 
         public void AdvanceDay()
         {
+            if (runState == null)
+            {
+                return;
+            }
+
             simulation.AdvanceDay(runState, calendarDefinition);
             NotifyStateChanged();
         }
