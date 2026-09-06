@@ -182,11 +182,41 @@ namespace Weave.Simulation
                 ? Mathf.Max(sameLocationPreparationSeconds, MinimumDurationSeconds)
                 : Mathf.Max(distance * Mathf.Max(secondsPerDistanceUnit, MinimumDurationSeconds), MinimumDurationSeconds);
 
-            if (task.RequiredLocation.LocationId != characterState.HomeLocationId)
+            if (distance <= Mathf.Epsilon)
             {
                 return baseDuration;
             }
 
+            var carriedWeight = GetCarriedWeight(characterState, resources);
+            var penaltyMultiplier = 1f + Mathf.Max(0f, carriedWeight) * Mathf.Max(0f, carryPenaltyPerWeightUnit);
+            return Mathf.Max(baseDuration * penaltyMultiplier, MinimumDurationSeconds);
+        }
+
+        public float EstimateTravelDurationToLocation(
+            RunState runState,
+            CharacterDefinition character,
+            string destinationLocationId,
+            IEnumerable<LocationDefinition> locations,
+            IEnumerable<ResourceDefinition> resources,
+            float secondsPerDistanceUnit,
+            float carryPenaltyPerWeightUnit)
+        {
+            if (runState == null || character == null || string.IsNullOrEmpty(destinationLocationId))
+            {
+                return MinimumDurationSeconds;
+            }
+
+            var characterState = runState.GetCharacter(character.CharacterId);
+            var origin = GetLocationPosition(characterState.CurrentLocationId, locations);
+            var destination = GetLocationPosition(destinationLocationId, locations);
+            var distance = Vector2.Distance(origin, destination);
+
+            if (distance <= Mathf.Epsilon)
+            {
+                return MinimumDurationSeconds;
+            }
+
+            var baseDuration = Mathf.Max(distance * Mathf.Max(secondsPerDistanceUnit, MinimumDurationSeconds), MinimumDurationSeconds);
             var carriedWeight = GetCarriedWeight(characterState, resources);
             var penaltyMultiplier = 1f + Mathf.Max(0f, carriedWeight) * Mathf.Max(0f, carryPenaltyPerWeightUnit);
             return Mathf.Max(baseDuration * penaltyMultiplier, MinimumDurationSeconds);
@@ -204,6 +234,11 @@ namespace Weave.Simulation
             }
 
             var characterState = runState.GetCharacter(character.CharacterId);
+            if (characterState.IsTravelling || characterState.IsWorkingOnTask)
+            {
+                return default;
+            }
+
             characterState.TravelOriginLocationId = characterState.CurrentLocationId;
             characterState.TravelDestinationLocationId = task.RequiredLocation.LocationId;
             characterState.TravelProgress = 0f;
@@ -213,6 +248,40 @@ namespace Weave.Simulation
             characterState.TaskElapsedSeconds = 0f;
             characterState.TaskDurationSeconds = Mathf.Max(task.DurationSeconds, MinimumDurationSeconds);
             characterState.CompleteTaskOnArrival = task.CompleteOnArrival;
+
+            return new TravelCommand(
+                character.CharacterId,
+                characterState.TravelOriginLocationId,
+                characterState.TravelDestinationLocationId);
+        }
+
+        public TravelCommand StartTravelToLocation(
+            RunState runState,
+            CharacterDefinition character,
+            string destinationLocationId,
+            float travelDurationSeconds)
+        {
+            if (runState == null ||
+                character == null ||
+                string.IsNullOrEmpty(destinationLocationId))
+            {
+                return default;
+            }
+
+            var characterState = runState.GetCharacter(character.CharacterId);
+            if (characterState.IsTravelling ||
+                characterState.IsWorkingOnTask ||
+                characterState.CurrentLocationId == destinationLocationId)
+            {
+                return default;
+            }
+
+            ClearTaskState(characterState);
+            characterState.TravelOriginLocationId = characterState.CurrentLocationId;
+            characterState.TravelDestinationLocationId = destinationLocationId;
+            characterState.TravelProgress = 0f;
+            characterState.CurrentTaskPhase = TaskPhase.Travelling;
+            characterState.TravelDurationSeconds = Mathf.Max(travelDurationSeconds, MinimumDurationSeconds);
 
             return new TravelCommand(
                 character.CharacterId,
@@ -282,6 +351,7 @@ namespace Weave.Simulation
             GameCalendarDefinition calendar,
             CharacterDefinition controlledCharacter,
             IEnumerable<TaskDefinition> tasks,
+            IEnumerable<LocationDefinition> locations,
             float simulationSeconds)
         {
             if (runState == null || calendar == null || controlledCharacter == null || simulationSeconds <= 0f)
@@ -346,7 +416,7 @@ namespace Weave.Simulation
                     var travelCompletion = CompleteTravelPhase(controlledState);
                     var destinationName = taskDefinition?.RequiredLocation != null
                         ? taskDefinition.RequiredLocation.DisplayName
-                        : travelCompletion.DestinationLocationName;
+                        : GetLocationDisplayName(travelCompletion.DestinationLocationId, locations);
 
                     if (travelCompletion.OriginLocationId == travelCompletion.DestinationLocationId)
                     {
@@ -512,7 +582,7 @@ namespace Weave.Simulation
                 ClearTaskState(characterState);
                 characterState.TravelProgress = 0f;
                 characterState.TravelOriginLocationId = characterState.CurrentLocationId;
-                characterState.TravelDestinationLocationId = characterState.CurrentLocationId;
+                characterState.TravelDestinationLocationId = string.Empty;
                 characterState.TravelDurationSeconds = 0f;
             }
 
@@ -699,6 +769,8 @@ namespace Weave.Simulation
             characterState.TravelProgress = 0f;
             characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
             characterState.TravelOriginLocationId = characterState.CurrentLocationId;
+            characterState.TravelDestinationLocationId = string.Empty;
+            characterState.TravelDurationSeconds = 0f;
 
             var depositedSummary = DepositCarriedResourcesIfArrivedHomeFromAway(characterState, originLocationId);
 
@@ -711,11 +783,41 @@ namespace Weave.Simulation
                     depositedSummary);
             }
 
+            if (!characterState.HasActiveTask)
+            {
+                characterState.CurrentTaskPhase = TaskPhase.None;
+                return new TravelPhaseCompletion(
+                    originLocationId,
+                    destinationLocationId,
+                    depositedSummary);
+            }
+
             characterState.CurrentTaskPhase = TaskPhase.Working;
             return new TravelPhaseCompletion(
                 originLocationId,
                 destinationLocationId,
                 depositedSummary);
+        }
+
+        private static string GetLocationDisplayName(string locationId, IEnumerable<LocationDefinition> locations)
+        {
+            if (string.IsNullOrEmpty(locationId))
+            {
+                return "destination";
+            }
+
+            if (locations != null)
+            {
+                foreach (var location in locations)
+                {
+                    if (location != null && location.LocationId == locationId)
+                    {
+                        return string.IsNullOrEmpty(location.DisplayName) ? locationId : location.DisplayName;
+                    }
+                }
+            }
+
+            return locationId;
         }
 
         private static string DepositCarriedResourcesIfArrivedHomeFromAway(CharacterState characterState, string originLocationId)
@@ -794,7 +896,6 @@ namespace Weave.Simulation
             public string OriginLocationId { get; }
             public string DestinationLocationId { get; }
             public string DepositedSummary { get; }
-            public string DestinationLocationName => string.IsNullOrEmpty(DestinationLocationId) ? "destination" : DestinationLocationId;
         }
     }
 }

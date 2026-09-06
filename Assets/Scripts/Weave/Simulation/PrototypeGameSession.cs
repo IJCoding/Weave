@@ -9,9 +9,7 @@ namespace Weave.Simulation
     public enum ActionPhaseType
     {
         TravelPreparation,
-        Work,
-        ReturnTravel,
-        Deposit
+        Work
     }
 
     public readonly struct ActionPhaseProgress
@@ -275,7 +273,25 @@ namespace Weave.Simulation
                 return new List<TaskDefinition>();
             }
 
-            return simulation.GetAvailableTasks(GetControlledCharacter(), tasks, runState);
+            var availableTasks = simulation.GetAvailableTasks(GetControlledCharacter(), tasks, runState);
+            var controlledState = runState.GetCharacter(runState.ControlledCharacterId);
+            var currentLocationId = controlledState.CurrentLocationId;
+            var filtered = new List<TaskDefinition>();
+
+            foreach (var task in availableTasks)
+            {
+                if (task == null ||
+                    task.CompleteOnArrival ||
+                    task.RequiredLocation == null ||
+                    task.RequiredLocation.LocationId != currentLocationId)
+                {
+                    continue;
+                }
+
+                filtered.Add(task);
+            }
+
+            return filtered;
         }
 
         public TravelCommand AssignPlayerTask(TaskDefinition task)
@@ -287,6 +303,15 @@ namespace Weave.Simulation
 
             var character = GetControlledCharacter();
             var characterState = character != null ? runState.GetCharacter(character.CharacterId) : null;
+            if (task == null ||
+                character == null ||
+                characterState == null ||
+                task.RequiredLocation == null ||
+                task.RequiredLocation.LocationId != characterState.CurrentLocationId)
+            {
+                return default;
+            }
+
             var command = simulation.StartTravel(
                 runState,
                 character,
@@ -299,35 +324,63 @@ namespace Weave.Simulation
                 characterState != null &&
                 character != null)
             {
-                var isReturnHome = task.CompleteOnArrival &&
-                    task.RequiredLocation.LocationId == characterState.HomeLocationId &&
-                    characterState.CurrentLocationId != characterState.HomeLocationId;
-                var startedAtDestination = command.OriginLocationId == command.DestinationLocationId;
-
-                if (isReturnHome)
-                {
-                    AppendLog(
-                        SimulationLogCategory.Travel,
-                        character.CharacterId,
-                        $"{character.DisplayName} left {GetLocationDisplayName(command.OriginLocationId)} for {GetLocationDisplayName(command.DestinationLocationId)}.");
-                }
-                else if (startedAtDestination)
-                {
-                    AppendLog(
-                        SimulationLogCategory.Travel,
-                        character.CharacterId,
-                        $"{character.DisplayName} began preparing for {task.DisplayName}.");
-                }
-                else
-                {
-                    AppendLog(
-                        SimulationLogCategory.Travel,
-                        character.CharacterId,
-                        $"{character.DisplayName} left {GetLocationDisplayName(command.OriginLocationId)} for {task.RequiredLocation.DisplayName}.");
-                }
+                AppendLog(
+                    SimulationLogCategory.Travel,
+                    character.CharacterId,
+                    $"{character.DisplayName} began preparing for {task.DisplayName}.");
             }
 
             NotifyStateChanged();
+            return command;
+        }
+
+        public float GetEstimatedTravelDurationToLocation(string locationId)
+        {
+            if (runState == null || string.IsNullOrEmpty(locationId))
+            {
+                return 0f;
+            }
+
+            return simulation.EstimateTravelDurationToLocation(
+                runState,
+                GetControlledCharacter(),
+                locationId,
+                locations,
+                resources,
+                SecondsPerDistanceUnit,
+                CarryPenaltyPerWeightUnit);
+        }
+
+        public TravelCommand RequestPlayerTravel(string locationId)
+        {
+            if (runState == null || string.IsNullOrEmpty(locationId))
+            {
+                return default;
+            }
+
+            var character = GetControlledCharacter();
+            var destination = FindLocationById(locationId);
+
+            if (character == null || destination == null)
+            {
+                return default;
+            }
+
+            var command = simulation.StartTravelToLocation(
+                runState,
+                character,
+                destination.LocationId,
+                GetEstimatedTravelDurationToLocation(destination.LocationId));
+
+            if (!string.IsNullOrEmpty(command.CharacterId))
+            {
+                AppendLog(
+                    SimulationLogCategory.Travel,
+                    character.CharacterId,
+                    $"{character.DisplayName} left {GetLocationDisplayName(command.OriginLocationId)} for {GetLocationDisplayName(command.DestinationLocationId)}.");
+                NotifyStateChanged();
+            }
+
             return command;
         }
 
@@ -376,6 +429,7 @@ namespace Weave.Simulation
                 calendarDefinition,
                 GetControlledCharacter(),
                 tasks,
+                locations,
                 simulationSeconds);
 
             if (result.StateChanged)
@@ -576,6 +630,24 @@ namespace Weave.Simulation
             return null;
         }
 
+        private LocationDefinition FindLocationById(string locationId)
+        {
+            if (string.IsNullOrEmpty(locationId))
+            {
+                return null;
+            }
+
+            foreach (var location in locations)
+            {
+                if (location != null && location.LocationId == locationId)
+                {
+                    return location;
+                }
+            }
+
+            return null;
+        }
+
         private TaskDefinition FindTaskById(string taskId)
         {
             if (string.IsNullOrEmpty(taskId))
@@ -626,12 +698,7 @@ namespace Weave.Simulation
             var phases = new List<ActionPhaseProgress>();
             var hasWorkPhase = !task.CompleteOnArrival;
             var travelDuration = Mathf.Max(travelDurationSeconds, 0f);
-            var isReturnTravel = task.CompleteOnArrival &&
-                task.RequiredLocation != null &&
-                task.RequiredLocation.LocationId == characterState.HomeLocationId &&
-                characterState.CurrentLocationId != characterState.HomeLocationId;
-            var travelLabel = isReturnTravel ? "Return Travel" : "Travel / Preparation";
-            var travelType = isReturnTravel ? ActionPhaseType.ReturnTravel : ActionPhaseType.TravelPreparation;
+            var travelLabel = "Travel / Preparation";
 
             var travelElapsed = 0f;
             var workElapsed = 0f;
@@ -650,7 +717,7 @@ namespace Weave.Simulation
                 }
             }
 
-            phases.Add(new ActionPhaseProgress(travelType, travelLabel, travelDuration, travelElapsed));
+            phases.Add(new ActionPhaseProgress(ActionPhaseType.TravelPreparation, travelLabel, travelDuration, travelElapsed));
 
             if (hasWorkPhase)
             {

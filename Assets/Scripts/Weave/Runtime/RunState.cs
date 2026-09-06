@@ -102,7 +102,7 @@ namespace Weave.Runtime
             HomeLocationId = definition.HomeLocation != null ? definition.HomeLocation.LocationId : string.Empty;
             CurrentLocationId = HomeLocationId;
             TravelOriginLocationId = CurrentLocationId;
-            TravelDestinationLocationId = CurrentLocationId;
+            TravelDestinationLocationId = string.Empty;
             CurrentTaskPhase = TaskPhase.None;
 
             foreach (var resource in definition.StartingResources)
@@ -112,7 +112,7 @@ namespace Weave.Runtime
         }
 
         public bool HasActiveTask => !string.IsNullOrEmpty(CurrentTaskId);
-        public bool IsTravelling => CurrentTaskPhase == TaskPhase.Travelling && HasActiveTask;
+        public bool IsTravelling => CurrentTaskPhase == TaskPhase.Travelling;
         public bool IsWorkingOnTask => CurrentTaskPhase == TaskPhase.Working && HasActiveTask;
 
         public int GetStoredResource(string resourceId)
