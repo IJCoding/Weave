@@ -18,7 +18,6 @@ namespace Weave.Presentation
     public sealed class PrototypeShowcaseController : MonoBehaviour
     {
         private const string PrototypePlayerId = "Player";
-        private const string PrototypePlayerDisplayName = "Player";
 
         private sealed class PopupChoice
         {
@@ -108,15 +107,6 @@ namespace Weave.Presentation
             {
                 Debug.LogError(
                     $"Controlled character ID must be '{PrototypePlayerId}' for the current prototype (found '{controlledCharacter.CharacterId}').",
-                    controlledCharacter);
-                enabled = false;
-                return;
-            }
-
-            if (!string.Equals(controlledCharacter.DisplayName, PrototypePlayerDisplayName, StringComparison.Ordinal))
-            {
-                Debug.LogError(
-                    $"Controlled character display name must be '{PrototypePlayerDisplayName}' for the current prototype (found '{controlledCharacter.DisplayName}').",
                     controlledCharacter);
                 enabled = false;
                 return;
