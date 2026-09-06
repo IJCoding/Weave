@@ -17,8 +17,6 @@ namespace Weave.Presentation
     [RequireComponent(typeof(PrototypeGameSession))]
     public sealed class PrototypeShowcaseController : MonoBehaviour
     {
-        private const string PrototypePlayerId = "Player";
-
         private sealed class PopupChoice
         {
             public string Label;
@@ -99,15 +97,6 @@ namespace Weave.Presentation
             if (controlledCharacter == null)
             {
                 Debug.LogError("AuthoredVillageScenario requires a controlled character definition.", this);
-                enabled = false;
-                return;
-            }
-
-            if (!string.Equals(controlledCharacter.CharacterId, PrototypePlayerId, StringComparison.Ordinal))
-            {
-                Debug.LogError(
-                    $"Controlled character ID must be '{PrototypePlayerId}' for the current prototype (found '{controlledCharacter.CharacterId}').",
-                    controlledCharacter);
                 enabled = false;
                 return;
             }
