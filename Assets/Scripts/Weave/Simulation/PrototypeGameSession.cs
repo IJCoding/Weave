@@ -432,7 +432,21 @@ namespace Weave.Simulation
             }
 
             var characterState = runState.GetCharacter(characterId);
-            var travelDuration = GetEstimatedTravelDuration(task);
+            var character = FindCharacterById(characterId);
+            if (character == null)
+            {
+                return new ActionProgressSummary(string.Empty, false, -1, new List<ActionPhaseProgress>());
+            }
+
+            var travelDuration = simulation.EstimateTravelDuration(
+                runState,
+                character,
+                task,
+                locations,
+                resources,
+                SecondsPerDistanceUnit,
+                SameLocationPreparationSeconds,
+                CarryPenaltyPerWeightUnit);
             return BuildActionProgressSummary(characterState, task, travelDuration, false);
         }
 
@@ -463,6 +477,24 @@ namespace Weave.Simulation
         {
             if (string.IsNullOrEmpty(taskId))
             {
+                return null;
+            }
+
+            private CharacterDefinition FindCharacterById(string characterId)
+            {
+                if (string.IsNullOrEmpty(characterId))
+                {
+                    return null;
+                }
+
+                foreach (var character in characters)
+                {
+                    if (character != null && character.CharacterId == characterId)
+                    {
+                        return character;
+                    }
+                }
+
                 return null;
             }
 

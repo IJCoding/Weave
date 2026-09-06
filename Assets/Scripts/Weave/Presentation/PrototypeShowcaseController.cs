@@ -818,17 +818,17 @@ namespace Weave.Presentation
             {
                 var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !controlledState.HasActiveTask;
                 taskButton.Button.interactable = available;
-                var travelOrPrep = GetTravelHintForTask(controlledState, taskButton.Task);
+                var isSelectedTask = controlledState.HasActiveTask && controlledState.CurrentTaskId == taskButton.Task.TaskId;
+                var progress = isSelectedTask
+                    ? activeActionProgress
+                    : session.GetTaskPlanPreview(controlledCharacter.CharacterId, taskButton.Task);
+                var travelOrPrep = GetTravelHintForTask(controlledState, taskButton.Task, progress);
                 var suffix = controlledState.HasActiveTask
                     ? controlledState.CurrentTaskId == taskButton.Task.TaskId
                         ? $" • {GetTaskStateText(controlledState, activeActionProgress)}"
                         : " • Busy"
                     : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " • Unavailable";
                 taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s) [{travelOrPrep}]{suffix}";
-                var isSelectedTask = controlledState.HasActiveTask && controlledState.CurrentTaskId == taskButton.Task.TaskId;
-                var progress = isSelectedTask
-                    ? activeActionProgress
-                    : session.GetTaskPlanPreview(controlledCharacter.CharacterId, taskButton.Task);
                 RefreshTaskPhaseBar(taskButton, progress, isSelectedTask);
             }
         }
@@ -1579,17 +1579,16 @@ namespace Weave.Presentation
             return "No active assignment";
         }
 
-        private string GetTravelHintForTask(CharacterState controlledState, TaskDefinition task)
+        private string GetTravelHintForTask(CharacterState controlledState, TaskDefinition task, ActionProgressSummary progress)
         {
             if (task == null || task.RequiredLocation == null)
             {
                 return "No location";
             }
 
-            var travelSeconds = Mathf.CeilToInt(session.GetEstimatedTravelDuration(task));
-            var isReturnTask = task.CompleteOnArrival &&
-                task.RequiredLocation.LocationId == controlledState.HomeLocationId &&
-                controlledState.CurrentLocationId != controlledState.HomeLocationId;
+            var travelPhase = progress.HasPhases ? progress.Phases[0] : default;
+            var travelSeconds = Mathf.CeilToInt(travelPhase.DurationSeconds);
+            var isReturnTask = travelPhase.PhaseType == ActionPhaseType.ReturnTravel;
 
             if (isReturnTask)
             {
