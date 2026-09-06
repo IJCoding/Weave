@@ -799,6 +799,8 @@ namespace Weave.Presentation
                 return;
             }
 
+            var preAssignState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+            var wasAlreadyAtRequiredLocation = preAssignState.CurrentLocationId == task.RequiredLocation.LocationId;
             var command = session.AssignPlayerTask(task);
 
             if (string.IsNullOrEmpty(command.CharacterId))
@@ -806,10 +808,8 @@ namespace Weave.Presentation
                 return;
             }
 
-            var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
-            var isSameLocation = controlledState.TravelOriginLocationId == controlledState.TravelDestinationLocationId;
             var travelSeconds = session.GetEstimatedTravelDuration(task);
-            statusMessage = isSameLocation
+            statusMessage = wasAlreadyAtRequiredLocation
                 ? $"{controlledCharacter.DisplayName} is preparing for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s)."
                 : $"{controlledCharacter.DisplayName} is travelling to {task.RequiredLocation.DisplayName} for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s).";
             RefreshPresentation();
