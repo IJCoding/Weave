@@ -6,6 +6,82 @@ using Weave.Runtime;
 
 namespace Weave.Simulation
 {
+    public enum ActionPhaseType
+    {
+        TravelPreparation,
+        Work,
+        ReturnTravel,
+        Deposit
+    }
+
+    public readonly struct ActionPhaseProgress
+    {
+        public ActionPhaseProgress(
+            ActionPhaseType phaseType,
+            string label,
+            float durationSeconds,
+            float elapsedSeconds)
+        {
+            PhaseType = phaseType;
+            Label = label;
+            DurationSeconds = Mathf.Max(durationSeconds, 0f);
+            ElapsedSeconds = Mathf.Clamp(elapsedSeconds, 0f, DurationSeconds);
+        }
+
+        public ActionPhaseType PhaseType { get; }
+        public string Label { get; }
+        public float DurationSeconds { get; }
+        public float ElapsedSeconds { get; }
+        public float Progress => DurationSeconds <= Mathf.Epsilon ? 1f : Mathf.Clamp01(ElapsedSeconds / DurationSeconds);
+    }
+
+    public readonly struct ActionProgressSummary
+    {
+        public ActionProgressSummary(
+            string taskId,
+            bool isActive,
+            int currentPhaseIndex,
+            IReadOnlyList<ActionPhaseProgress> phases)
+        {
+            TaskId = taskId;
+            IsActive = isActive;
+            CurrentPhaseIndex = currentPhaseIndex;
+            Phases = phases ?? new List<ActionPhaseProgress>();
+            var totalDuration = 0f;
+            var completedDuration = 0f;
+
+            foreach (var phase in Phases)
+            {
+                totalDuration += Mathf.Max(phase.DurationSeconds, 0f);
+                completedDuration += Mathf.Clamp(phase.ElapsedSeconds, 0f, phase.DurationSeconds);
+            }
+
+            TotalDurationSeconds = totalDuration;
+            CompletedDurationSeconds = completedDuration;
+            CurrentPhase = currentPhaseIndex >= 0 && currentPhaseIndex < Phases.Count
+                ? Phases[currentPhaseIndex]
+                : default;
+        }
+
+        public string TaskId { get; }
+        public bool IsActive { get; }
+        public int CurrentPhaseIndex { get; }
+        public IReadOnlyList<ActionPhaseProgress> Phases { get; }
+        public float TotalDurationSeconds { get; }
+        public float CompletedDurationSeconds { get; }
+        public ActionPhaseProgress CurrentPhase { get; }
+        public bool HasPhases => Phases != null && Phases.Count > 0;
+        public float OverallProgress =>
+            TotalDurationSeconds <= Mathf.Epsilon
+                ? (HasPhases ? 1f : 0f)
+                : Mathf.Clamp01(CompletedDurationSeconds / TotalDurationSeconds);
+        public float CurrentPhaseProgress => CurrentPhase.DurationSeconds <= Mathf.Epsilon
+            ? (CurrentPhaseIndex >= 0 ? 1f : 0f)
+            : Mathf.Clamp01(CurrentPhase.ElapsedSeconds / CurrentPhase.DurationSeconds);
+        public float CurrentPhaseRemainingSeconds =>
+            Mathf.Max(0f, CurrentPhase.DurationSeconds - CurrentPhase.ElapsedSeconds);
+    }
+
     public sealed class PrototypeGameSession : MonoBehaviour
     {
         [SerializeField] private GameCalendarDefinition calendarDefinition;
@@ -332,6 +408,50 @@ namespace Weave.Simulation
             return Color.white;
         }
 
+        public ActionProgressSummary GetActionProgressForCharacter(string characterId)
+        {
+            if (runState == null || string.IsNullOrEmpty(characterId))
+            {
+                return new ActionProgressSummary(string.Empty, false, -1, new List<ActionPhaseProgress>());
+            }
+
+            var characterState = runState.GetCharacter(characterId);
+
+            if (!characterState.HasActiveTask)
+            {
+                return new ActionProgressSummary(string.Empty, false, -1, new List<ActionPhaseProgress>());
+            }
+
+            var task = FindTaskById(characterState.CurrentTaskId);
+            return BuildActionProgressSummary(characterState, task, characterState.TravelDurationSeconds, true);
+        }
+
+        public ActionProgressSummary GetTaskPlanPreview(string characterId, TaskDefinition task)
+        {
+            if (runState == null || string.IsNullOrEmpty(characterId) || task == null)
+            {
+                return new ActionProgressSummary(string.Empty, false, -1, new List<ActionPhaseProgress>());
+            }
+
+            var characterState = runState.GetCharacter(characterId);
+            var character = FindCharacterById(characterId);
+            if (character == null)
+            {
+                return new ActionProgressSummary(string.Empty, false, -1, new List<ActionPhaseProgress>());
+            }
+
+            var travelDuration = simulation.EstimateTravelDuration(
+                runState,
+                character,
+                task,
+                locations,
+                resources,
+                SecondsPerDistanceUnit,
+                SameLocationPreparationSeconds,
+                CarryPenaltyPerWeightUnit);
+            return BuildActionProgressSummary(characterState, task, travelDuration, false);
+        }
+
         private void Update()
         {
             AdvanceSimulation(Time.unscaledDeltaTime);
@@ -353,6 +473,109 @@ namespace Weave.Simulation
             }
 
             return null;
+        }
+
+        private TaskDefinition FindTaskById(string taskId)
+        {
+            if (string.IsNullOrEmpty(taskId))
+            {
+                return null;
+            }
+
+            private CharacterDefinition FindCharacterById(string characterId)
+            {
+                if (string.IsNullOrEmpty(characterId))
+                {
+                    return null;
+                }
+
+                foreach (var character in characters)
+                {
+                    if (character != null && character.CharacterId == characterId)
+                    {
+                        return character;
+                    }
+                }
+
+                return null;
+            }
+
+            foreach (var task in tasks)
+            {
+                if (task != null && task.TaskId == taskId)
+                {
+                    return task;
+                }
+            }
+
+            return null;
+        }
+
+        private ActionProgressSummary BuildActionProgressSummary(
+            CharacterState characterState,
+            TaskDefinition task,
+            float travelDurationSeconds,
+            bool includeActiveProgress)
+        {
+            if (characterState == null || task == null)
+            {
+                return new ActionProgressSummary(string.Empty, false, -1, new List<ActionPhaseProgress>());
+            }
+
+            var phases = new List<ActionPhaseProgress>();
+            var hasWorkPhase = !task.CompleteOnArrival;
+            var travelDuration = Mathf.Max(travelDurationSeconds, 0f);
+            var isReturnTravel = task.CompleteOnArrival &&
+                task.RequiredLocation != null &&
+                task.RequiredLocation.LocationId == characterState.HomeLocationId &&
+                characterState.CurrentLocationId != characterState.HomeLocationId;
+            var travelLabel = isReturnTravel ? "Return Travel" : "Travel / Preparation";
+            var travelType = isReturnTravel ? ActionPhaseType.ReturnTravel : ActionPhaseType.TravelPreparation;
+
+            var travelElapsed = 0f;
+            var workElapsed = 0f;
+            var currentPhaseIndex = -1;
+
+            if (includeActiveProgress)
+            {
+                if (characterState.IsTravelling)
+                {
+                    travelElapsed = Mathf.Clamp01(characterState.TravelProgress) * travelDuration;
+                    currentPhaseIndex = 0;
+                }
+                else
+                {
+                    travelElapsed = travelDuration;
+                }
+            }
+
+            phases.Add(new ActionPhaseProgress(travelType, travelLabel, travelDuration, travelElapsed));
+
+            if (hasWorkPhase)
+            {
+                var workDuration = Mathf.Max(characterState.TaskDurationSeconds > 0f
+                    ? characterState.TaskDurationSeconds
+                    : task.DurationSeconds, 0.01f);
+
+                if (includeActiveProgress && characterState.IsWorkingOnTask)
+                {
+                    workElapsed = Mathf.Clamp(characterState.TaskElapsedSeconds, 0f, workDuration);
+                    currentPhaseIndex = 1;
+                }
+
+                phases.Add(new ActionPhaseProgress(ActionPhaseType.Work, "Work / Main Action", workDuration, workElapsed));
+            }
+
+            if (!includeActiveProgress)
+            {
+                currentPhaseIndex = phases.Count > 0 ? 0 : -1;
+            }
+            else if (currentPhaseIndex < 0 && phases.Count > 0)
+            {
+                currentPhaseIndex = Mathf.Min(phases.Count - 1, hasWorkPhase ? 1 : 0);
+            }
+
+            return new ActionProgressSummary(task.TaskId, includeActiveProgress && characterState.HasActiveTask, currentPhaseIndex, phases);
         }
 
         private Vector2 GetLocationPosition(string locationId)
