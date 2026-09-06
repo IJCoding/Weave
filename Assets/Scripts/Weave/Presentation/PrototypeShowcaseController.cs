@@ -26,6 +26,7 @@ namespace Weave.Presentation
         private static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
         private const float TargetAspectRatio = 16f / 9f;
         private const float MapPadding = 54f;
+        private const int ActivityHistoryLimit = 50;
 
         [Serializable]
         private sealed class ProgressPhaseTheme
@@ -72,6 +73,7 @@ namespace Weave.Presentation
         private readonly Dictionary<string, Text> locationCoordinateTexts = new Dictionary<string, Text>();
         private readonly List<UnityEngine.Object> runtimeDefinitions = new List<UnityEngine.Object>();
         private readonly List<TaskButtonView> taskButtons = new List<TaskButtonView>();
+        private readonly HashSet<string> loggedDecisionRequests = new HashSet<string>();
 
         private PrototypeGameSession session;
         [SerializeField] private ProgressPhaseTheme phaseTheme = new ProgressPhaseTheme();
@@ -104,6 +106,7 @@ namespace Weave.Presentation
         private Text carryingText;
         private Text worldFlagsText;
         private ScrollRect activityScrollRect;
+        private RectTransform activityConsoleContent;
         private Text activityConsoleText;
         private RectTransform taskButtonContainer;
         private Image pauseButtonImage;
@@ -542,9 +545,20 @@ namespace Weave.Presentation
             activityScrollRect.scrollSensitivity = 20f;
             activityScrollRect.viewport = activityViewport;
 
+            activityConsoleContent = CreateRect("Activity Console Content", activityViewport);
+            activityConsoleContent.anchorMin = new Vector2(0f, 1f);
+            activityConsoleContent.anchorMax = new Vector2(1f, 1f);
+            activityConsoleContent.pivot = new Vector2(0.5f, 1f);
+            activityConsoleContent.offsetMin = new Vector2(0f, 0f);
+            activityConsoleContent.offsetMax = new Vector2(0f, 0f);
+            var contentSizeFitter = activityConsoleContent.gameObject.AddComponent<ContentSizeFitter>();
+            contentSizeFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            contentSizeFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            activityScrollRect.content = activityConsoleContent;
+
             activityConsoleText = CreateText(
                 "Activity Console Text",
-                activityViewport,
+                activityConsoleContent,
                 new Vector2(0f, 1f),
                 new Vector2(1f, 1f),
                 new Vector2(10f, -10f),
@@ -557,12 +571,11 @@ namespace Weave.Presentation
             activityConsoleText.horizontalOverflow = HorizontalWrapMode.Wrap;
             activityConsoleText.verticalOverflow = VerticalWrapMode.Overflow;
             activityConsoleText.supportRichText = false;
-            var contentRect = activityConsoleText.rectTransform;
-            contentRect.pivot = new Vector2(0.5f, 1f);
-            var contentFitter = activityConsoleText.gameObject.AddComponent<ContentSizeFitter>();
-            contentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-            contentFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
-            activityScrollRect.content = contentRect;
+            var textRect = activityConsoleText.rectTransform;
+            textRect.pivot = new Vector2(0.5f, 1f);
+            var textFitter = activityConsoleText.gameObject.AddComponent<ContentSizeFitter>();
+            textFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            textFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
 
             popupOverlay = CreatePanel(
                 "Popup Overlay",
@@ -862,6 +875,11 @@ namespace Weave.Presentation
         private void HandleSimulationLogEntryAdded(SimulationLogEntry entry)
         {
             activityLogEntries.Add(entry);
+            while (activityLogEntries.Count > ActivityHistoryLimit)
+            {
+                activityLogEntries.RemoveAt(0);
+            }
+
             RefreshActivityConsoleText();
         }
 
@@ -876,6 +894,11 @@ namespace Weave.Presentation
             foreach (var entry in session.SimulationLogEntries)
             {
                 activityLogEntries.Add(entry);
+            }
+
+            while (activityLogEntries.Count > ActivityHistoryLimit)
+            {
+                activityLogEntries.RemoveAt(0);
             }
 
             RefreshActivityConsoleText();
@@ -918,6 +941,7 @@ namespace Weave.Presentation
         {
             ClosePopupIfOpen();
             playerCanon = new PlayerCanonState();
+            loggedDecisionRequests.Clear();
             session.StartRun(controlledCharacter);
             RebuildActivityConsoleFromSession();
             RefreshPresentation();
@@ -963,11 +987,18 @@ namespace Weave.Presentation
             popupSourceText.gameObject.SetActive(!string.IsNullOrEmpty(popupSourceText.text));
             popupBodyText.text = eventDefinition.Prompt;
             var decisionMaker = eventDefinition.DecisionMaker != null ? eventDefinition.DecisionMaker.CharacterId : controlledCharacter.CharacterId;
-            var sourceLabel = string.IsNullOrEmpty(popupSourceText.text) ? "System" : popupSourceText.text;
-            session.PublishSimulationLog(
-                SimulationLogCategory.Event,
-                decisionMaker,
-                $"{sourceLabel} requested a decision: {GetEventTitle(eventDefinition)}.");
+            var eventRequestKey = string.IsNullOrEmpty(eventDefinition.EventId)
+                ? GetEventTitle(eventDefinition)
+                : eventDefinition.EventId;
+            if (!loggedDecisionRequests.Contains(eventRequestKey))
+            {
+                loggedDecisionRequests.Add(eventRequestKey);
+                var sourceLabel = string.IsNullOrEmpty(popupSourceText.text) ? "System" : popupSourceText.text;
+                session.PublishSimulationLog(
+                    SimulationLogCategory.Event,
+                    decisionMaker,
+                    $"{sourceLabel} requested a decision: {GetEventTitle(eventDefinition)}.");
+            }
             ClearPopupChoices();
 
             foreach (var option in eventDefinition.Options)

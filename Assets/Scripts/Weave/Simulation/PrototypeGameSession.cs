@@ -449,15 +449,7 @@ namespace Weave.Simulation
                 return;
             }
 
-            AppendLog(
-                SimulationLogCategory.System,
-                runState.ControlledCharacterId,
-                $"Day {runState.Calendar.DayOfSeason} ended.");
             simulation.AdvanceDay(runState, calendarDefinition);
-            AppendLog(
-                SimulationLogCategory.System,
-                runState.ControlledCharacterId,
-                $"Day {runState.Calendar.DayOfSeason} began.");
             NotifyStateChanged();
         }
 
