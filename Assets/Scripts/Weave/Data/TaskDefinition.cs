@@ -14,6 +14,9 @@ namespace Weave.Data
         [SerializeField] private List<string> blockedWorldFlags = new List<string>();
         [SerializeField] private float durationSeconds = 25f;
         [SerializeField] private List<ResourceAmount> actorResourceChanges = new List<ResourceAmount>();
+        [SerializeField] private bool rewardsAddedToCarriedResources;
+        [SerializeField] private bool completeOnArrival;
+        [SerializeField] private bool unavailableWhenAlreadyAtRequiredLocation;
         [SerializeField] private EventDefinition followUpEvent;
 
         public string TaskId => taskId;
@@ -24,6 +27,9 @@ namespace Weave.Data
         public IReadOnlyList<string> BlockedWorldFlags => blockedWorldFlags;
         public float DurationSeconds => durationSeconds;
         public IReadOnlyList<ResourceAmount> ActorResourceChanges => actorResourceChanges;
+        public bool RewardsAddedToCarriedResources => rewardsAddedToCarriedResources;
+        public bool CompleteOnArrival => completeOnArrival;
+        public bool UnavailableWhenAlreadyAtRequiredLocation => unavailableWhenAlreadyAtRequiredLocation;
         public EventDefinition FollowUpEvent => followUpEvent;
 
         public bool IsAvailableToAllCharacters => eligibleCharacters.Count == 0;

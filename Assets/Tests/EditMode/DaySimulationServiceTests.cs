@@ -96,8 +96,123 @@ namespace Weave.Tests.EditMode
             Assert.That(result.TaskInterrupted, Is.True);
             Assert.That(result.InterruptedTaskId, Is.EqualTo("mine_iron"));
             Assert.That(runState.Calendar.DayOfSeason, Is.EqualTo(2));
-            Assert.That(runState.GetCharacter("miner").GetResource("iron"), Is.EqualTo(0));
+            Assert.That(runState.GetCharacter("miner").GetStoredResource("iron"), Is.EqualTo(0));
             AssertReset(runState.GetCharacter("miner"));
+        }
+
+        [Test]
+        public void AdvanceSimulation_SameLocationPreparationTransitionsToWorkingAndCompletes()
+        {
+            var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
+            SetField(calendar, "startingYear", 1);
+            SetField(calendar, "seasons", new List<string> { "Spring" });
+            SetField(calendar, "daysPerSeason", 3);
+            SetField(calendar, "dayDurationSeconds", 300f);
+
+            var mine = ScriptableObject.CreateInstance<LocationDefinition>();
+            SetField(mine, "locationId", "mine");
+            SetField(mine, "mapPosition", new Vector2(0f, 3f));
+
+            var miner = CreateCharacter("miner", "Miner", mine);
+            var task = ScriptableObject.CreateInstance<TaskDefinition>();
+            SetField(task, "taskId", "mine_iron");
+            SetField(task, "displayName", "Mine Iron");
+            SetField(task, "requiredLocation", mine);
+            SetField(task, "eligibleCharacters", new List<CharacterDefinition> { miner });
+            SetField(task, "requiredWorldFlags", new List<string>());
+            SetField(task, "blockedWorldFlags", new List<string>());
+            SetField(task, "durationSeconds", 2f);
+            SetField(task, "actorResourceChanges", new List<ResourceAmount>
+            {
+                new ResourceAmount { ResourceId = "iron", Amount = 1 }
+            });
+
+            var service = new DaySimulationService(new CanonResolver());
+            var runState = service.CreateInitialState(calendar, new[] { mine }, new[] { miner }, miner);
+            service.StartTravel(runState, miner, task, 1f);
+
+            var prepStep = service.AdvanceSimulation(runState, calendar, miner, new[] { task }, 1f);
+            Assert.That(prepStep.StateChanged, Is.True);
+            Assert.That(runState.GetCharacter("miner").CurrentTaskPhase, Is.EqualTo(TaskPhase.Working));
+            Assert.That(runState.GetCharacter("miner").CurrentLocationId, Is.EqualTo("mine"));
+
+            var finishStep = service.AdvanceSimulation(runState, calendar, miner, new[] { task }, 2f);
+            Assert.That(finishStep.TaskCompleted, Is.True);
+            Assert.That(runState.GetCharacter("miner").GetStoredResource("iron"), Is.EqualTo(1));
+            Assert.That(runState.GetCharacter("miner").CurrentTaskPhase, Is.EqualTo(TaskPhase.None));
+        }
+
+        [Test]
+        public void AdvanceSimulation_ReturnHomeDepositsCarriedResourcesAndAppliesCarryPenalty()
+        {
+            var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
+            SetField(calendar, "startingYear", 1);
+            SetField(calendar, "seasons", new List<string> { "Spring" });
+            SetField(calendar, "daysPerSeason", 3);
+            SetField(calendar, "dayDurationSeconds", 300f);
+
+            var home = ScriptableObject.CreateInstance<LocationDefinition>();
+            SetField(home, "locationId", "home");
+            SetField(home, "mapPosition", new Vector2(0f, 0f));
+
+            var mine = ScriptableObject.CreateInstance<LocationDefinition>();
+            SetField(mine, "locationId", "mine");
+            SetField(mine, "mapPosition", new Vector2(0f, 3f));
+
+            var miner = CreateCharacter("miner", "Miner", home);
+            var mineTask = ScriptableObject.CreateInstance<TaskDefinition>();
+            SetField(mineTask, "taskId", "mine_iron");
+            SetField(mineTask, "displayName", "Mine Iron");
+            SetField(mineTask, "requiredLocation", mine);
+            SetField(mineTask, "eligibleCharacters", new List<CharacterDefinition> { miner });
+            SetField(mineTask, "requiredWorldFlags", new List<string>());
+            SetField(mineTask, "blockedWorldFlags", new List<string>());
+            SetField(mineTask, "durationSeconds", 1f);
+            SetField(mineTask, "actorResourceChanges", new List<ResourceAmount> { new ResourceAmount { ResourceId = "iron", Amount = 1 } });
+            SetField(mineTask, "rewardsAddedToCarriedResources", true);
+
+            var returnHomeTask = ScriptableObject.CreateInstance<TaskDefinition>();
+            SetField(returnHomeTask, "taskId", "return_home");
+            SetField(returnHomeTask, "displayName", "Return Home");
+            SetField(returnHomeTask, "requiredLocation", home);
+            SetField(returnHomeTask, "eligibleCharacters", new List<CharacterDefinition>());
+            SetField(returnHomeTask, "requiredWorldFlags", new List<string>());
+            SetField(returnHomeTask, "blockedWorldFlags", new List<string>());
+            SetField(returnHomeTask, "durationSeconds", 0f);
+            SetField(returnHomeTask, "actorResourceChanges", new List<ResourceAmount>());
+            SetField(returnHomeTask, "completeOnArrival", true);
+            SetField(returnHomeTask, "unavailableWhenAlreadyAtRequiredLocation", true);
+
+            var iron = ScriptableObject.CreateInstance<ResourceDefinition>();
+            SetField(iron, "resourceId", "iron");
+            SetField(iron, "carryWeightPerUnit", 2f);
+
+            var service = new DaySimulationService(new CanonResolver());
+            var runState = service.CreateInitialState(calendar, new[] { home, mine }, new[] { miner }, miner);
+
+            service.StartTravel(runState, miner, mineTask, 1f);
+            service.AdvanceSimulation(runState, calendar, miner, new[] { mineTask, returnHomeTask }, 2f);
+            Assert.That(runState.GetCharacter("miner").GetCarriedResource("iron"), Is.EqualTo(1));
+
+            var returnDuration = service.EstimateTravelDuration(
+                runState,
+                miner,
+                returnHomeTask,
+                new[] { home, mine },
+                new[] { iron },
+                2f,
+                1f,
+                0.05f);
+            Assert.That(returnDuration, Is.EqualTo(6.6f).Within(0.001f));
+
+            service.StartTravel(runState, miner, returnHomeTask, returnDuration);
+            var result = service.AdvanceSimulation(runState, calendar, miner, new[] { mineTask, returnHomeTask }, returnDuration);
+
+            Assert.That(result.TaskCompleted, Is.True);
+            Assert.That(runState.GetCharacter("miner").CurrentLocationId, Is.EqualTo("home"));
+            Assert.That(runState.GetCharacter("miner").GetCarriedResource("iron"), Is.EqualTo(0));
+            Assert.That(runState.GetCharacter("miner").GetStoredResource("iron"), Is.EqualTo(1));
+            Assert.That(runState.GetCharacter("miner").CurrentTaskPhase, Is.EqualTo(TaskPhase.None));
         }
 
         private static CharacterDefinition CreateCharacter(string id, string displayName, LocationDefinition home)

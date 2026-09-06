@@ -144,7 +144,49 @@ namespace Weave.Simulation
                 }
             }
 
+            var characterState = runState.GetCharacter(character.CharacterId);
+
+            if (task.UnavailableWhenAlreadyAtRequiredLocation &&
+                task.RequiredLocation != null &&
+                characterState.CurrentLocationId == task.RequiredLocation.LocationId)
+            {
+                return false;
+            }
+
             return task.RequiredLocation != null;
+        }
+
+        public float EstimateTravelDuration(
+            RunState runState,
+            CharacterDefinition character,
+            TaskDefinition task,
+            IEnumerable<LocationDefinition> locations,
+            IEnumerable<ResourceDefinition> resources,
+            float secondsPerDistanceUnit,
+            float sameLocationPreparationSeconds,
+            float carryPenaltyPerWeightUnit)
+        {
+            if (runState == null || character == null || task == null || task.RequiredLocation == null)
+            {
+                return MinimumDurationSeconds;
+            }
+
+            var characterState = runState.GetCharacter(character.CharacterId);
+            var origin = GetLocationPosition(characterState.CurrentLocationId, locations);
+            var destination = GetLocationPosition(task.RequiredLocation.LocationId, locations);
+            var distance = Vector2.Distance(origin, destination);
+            var baseDuration = distance <= Mathf.Epsilon
+                ? Mathf.Max(sameLocationPreparationSeconds, MinimumDurationSeconds)
+                : Mathf.Max(distance * Mathf.Max(secondsPerDistanceUnit, MinimumDurationSeconds), MinimumDurationSeconds);
+
+            if (task.RequiredLocation.LocationId != characterState.HomeLocationId)
+            {
+                return baseDuration;
+            }
+
+            var carriedWeight = GetCarriedWeight(characterState, resources);
+            var penaltyMultiplier = 1f + Mathf.Max(0f, carriedWeight) * Mathf.Max(0f, carryPenaltyPerWeightUnit);
+            return Mathf.Max(baseDuration * penaltyMultiplier, MinimumDurationSeconds);
         }
 
         public TravelCommand StartTravel(
@@ -167,6 +209,7 @@ namespace Weave.Simulation
             characterState.TravelDurationSeconds = Mathf.Max(travelDurationSeconds, MinimumDurationSeconds);
             characterState.TaskElapsedSeconds = 0f;
             characterState.TaskDurationSeconds = Mathf.Max(task.DurationSeconds, MinimumDurationSeconds);
+            characterState.CompleteTaskOnArrival = task.CompleteOnArrival;
 
             return new TravelCommand(
                 character.CharacterId,
@@ -192,10 +235,7 @@ namespace Weave.Simulation
 
             if (characterState.TravelProgress >= 1f)
             {
-                characterState.TravelProgress = 0f;
-                characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
-                characterState.TravelOriginLocationId = characterState.CurrentLocationId;
-                characterState.CurrentTaskPhase = TaskPhase.Working;
+                CompleteTravelPhase(characterState);
             }
 
             return true;
@@ -221,7 +261,13 @@ namespace Weave.Simulation
 
             foreach (var change in task.ActorResourceChanges)
             {
-                actorState.ChangeResource(change.ResourceId, change.Amount);
+                if (task.RewardsAddedToCarriedResources)
+                {
+                    actorState.ChangeCarriedResource(change.ResourceId, change.Amount);
+                    continue;
+                }
+
+                actorState.ChangeStoredResource(change.ResourceId, change.Amount);
             }
 
             ClearTaskState(actorState);
@@ -292,10 +338,15 @@ namespace Weave.Simulation
                 if (controlledState.IsTravelling &&
                     controlledState.TravelProgress >= 1f)
                 {
-                    controlledState.TravelProgress = 0f;
-                    controlledState.CurrentLocationId = controlledState.TravelDestinationLocationId;
-                    controlledState.TravelOriginLocationId = controlledState.CurrentLocationId;
-                    controlledState.CurrentTaskPhase = TaskPhase.Working;
+                    var wasTravelOnly = controlledState.CompleteTaskOnArrival;
+                    CompleteTravelPhase(controlledState);
+
+                    if (wasTravelOnly && taskDefinition != null)
+                    {
+                        taskCompleted = true;
+                        completedTaskId = taskDefinition.TaskId;
+                    }
+
                     stateChanged = true;
                     continue;
                 }
@@ -468,6 +519,7 @@ namespace Weave.Simulation
             characterState.CurrentTaskPhase = TaskPhase.None;
             characterState.TaskElapsedSeconds = 0f;
             characterState.TaskDurationSeconds = 0f;
+            characterState.CompleteTaskOnArrival = false;
         }
 
         private static bool ConditionsMatch(RunState runState, IReadOnlyList<WorldFlagRequirement> requirements)
@@ -500,7 +552,7 @@ namespace Weave.Simulation
                 }
 
                 var targetState = runState.GetCharacter(resourceChange.Character.CharacterId);
-                targetState.ChangeResource(resourceChange.ResourceId, resourceChange.Amount);
+                targetState.ChangeStoredResource(resourceChange.ResourceId, resourceChange.Amount);
             }
         }
 
@@ -515,6 +567,109 @@ namespace Weave.Simulation
             }
 
             return false;
+        }
+
+        private static Vector2 GetLocationPosition(string locationId, IEnumerable<LocationDefinition> locations)
+        {
+            if (locations == null || string.IsNullOrEmpty(locationId))
+            {
+                return Vector2.zero;
+            }
+
+            foreach (var location in locations)
+            {
+                if (location != null && location.LocationId == locationId)
+                {
+                    return location.MapPosition;
+                }
+            }
+
+            return Vector2.zero;
+        }
+
+        private static float GetCarriedWeight(CharacterState characterState, IEnumerable<ResourceDefinition> resources)
+        {
+            var weights = BuildResourceWeightLookup(resources);
+            var totalWeight = 0f;
+
+            foreach (var entry in characterState.CarriedResources)
+            {
+                if (entry.Value <= 0)
+                {
+                    continue;
+                }
+
+                if (!weights.TryGetValue(entry.Key, out var weightPerUnit))
+                {
+                    weightPerUnit = 1f;
+                }
+
+                totalWeight += entry.Value * Mathf.Max(0f, weightPerUnit);
+            }
+
+            return totalWeight;
+        }
+
+        private static Dictionary<string, float> BuildResourceWeightLookup(IEnumerable<ResourceDefinition> resources)
+        {
+            var lookup = new Dictionary<string, float>();
+
+            if (resources == null)
+            {
+                return lookup;
+            }
+
+            foreach (var resource in resources)
+            {
+                if (resource == null || string.IsNullOrEmpty(resource.ResourceId))
+                {
+                    continue;
+                }
+
+                lookup[resource.ResourceId] = resource.CarryWeightPerUnit;
+            }
+
+            return lookup;
+        }
+
+        private static void CompleteTravelPhase(CharacterState characterState)
+        {
+            var originLocationId = characterState.TravelOriginLocationId;
+            characterState.TravelProgress = 0f;
+            characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
+            characterState.TravelOriginLocationId = characterState.CurrentLocationId;
+
+            DepositCarriedResourcesIfArrivedHomeFromAway(characterState, originLocationId);
+
+            if (characterState.CompleteTaskOnArrival)
+            {
+                ClearTaskState(characterState);
+                return;
+            }
+
+            characterState.CurrentTaskPhase = TaskPhase.Working;
+        }
+
+        private static void DepositCarriedResourcesIfArrivedHomeFromAway(CharacterState characterState, string originLocationId)
+        {
+            if (string.IsNullOrEmpty(characterState.HomeLocationId) ||
+                characterState.CurrentLocationId != characterState.HomeLocationId ||
+                originLocationId == characterState.HomeLocationId)
+            {
+                return;
+            }
+
+            foreach (var carriedResource in characterState.CarriedResources)
+            {
+                if (carriedResource.Value <= 0)
+                {
+                    continue;
+                }
+
+                characterState.ChangeStoredResource(carriedResource.Key, carriedResource.Value);
+            }
+
+            characterState.CarriedResources.Clear();
         }
     }
 }

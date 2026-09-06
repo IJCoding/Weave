@@ -82,6 +82,7 @@ namespace Weave.Runtime
     public sealed class CharacterState
     {
         public string CharacterId;
+        public string HomeLocationId;
         public string CurrentLocationId;
         public string TravelOriginLocationId;
         public string TravelDestinationLocationId;
@@ -91,34 +92,47 @@ namespace Weave.Runtime
         public float TravelDurationSeconds;
         public float TaskElapsedSeconds;
         public float TaskDurationSeconds;
-        [NonSerialized] public Dictionary<string, int> Resources = new Dictionary<string, int>();
+        public bool CompleteTaskOnArrival;
+        [NonSerialized] public Dictionary<string, int> StoredResources = new Dictionary<string, int>();
+        [NonSerialized] public Dictionary<string, int> CarriedResources = new Dictionary<string, int>();
 
         public CharacterState(CharacterDefinition definition)
         {
             CharacterId = definition.CharacterId;
-            CurrentLocationId = definition.HomeLocation != null ? definition.HomeLocation.LocationId : string.Empty;
+            HomeLocationId = definition.HomeLocation != null ? definition.HomeLocation.LocationId : string.Empty;
+            CurrentLocationId = HomeLocationId;
             TravelOriginLocationId = CurrentLocationId;
             TravelDestinationLocationId = CurrentLocationId;
             CurrentTaskPhase = TaskPhase.None;
 
             foreach (var resource in definition.StartingResources)
             {
-                Resources[resource.ResourceId] = resource.Amount;
+                StoredResources[resource.ResourceId] = resource.Amount;
             }
         }
 
         public bool HasActiveTask => !string.IsNullOrEmpty(CurrentTaskId);
-        public bool IsTravelling => CurrentTaskPhase == TaskPhase.Travelling && TravelDestinationLocationId != CurrentLocationId;
+        public bool IsTravelling => CurrentTaskPhase == TaskPhase.Travelling && HasActiveTask;
         public bool IsWorkingOnTask => CurrentTaskPhase == TaskPhase.Working && HasActiveTask;
 
-        public int GetResource(string resourceId)
+        public int GetStoredResource(string resourceId)
         {
-            return Resources.TryGetValue(resourceId, out var amount) ? amount : 0;
+            return StoredResources.TryGetValue(resourceId, out var amount) ? amount : 0;
         }
 
-        public void ChangeResource(string resourceId, int delta)
+        public int GetCarriedResource(string resourceId)
         {
-            Resources[resourceId] = GetResource(resourceId) + delta;
+            return CarriedResources.TryGetValue(resourceId, out var amount) ? amount : 0;
+        }
+
+        public void ChangeStoredResource(string resourceId, int delta)
+        {
+            StoredResources[resourceId] = GetStoredResource(resourceId) + delta;
+        }
+
+        public void ChangeCarriedResource(string resourceId, int delta)
+        {
+            CarriedResources[resourceId] = GetCarriedResource(resourceId) + delta;
         }
     }
 

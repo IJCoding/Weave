@@ -12,7 +12,10 @@ namespace Weave.Simulation
         [SerializeField] private List<LocationDefinition> locations = new List<LocationDefinition>();
         [SerializeField] private List<CharacterDefinition> characters = new List<CharacterDefinition>();
         [SerializeField] private List<TaskDefinition> tasks = new List<TaskDefinition>();
-        [SerializeField] private float travelDurationSeconds = 10f;
+        [SerializeField] private List<ResourceDefinition> resources = new List<ResourceDefinition>();
+        [SerializeField] private float secondsPerDistanceUnit = 3f;
+        [SerializeField] private float sameLocationPreparationSeconds = 1f;
+        [SerializeField] private float carryPenaltyPerWeightUnit = 0.05f;
 
         private readonly DaySimulationService simulation = new DaySimulationService(new CanonResolver());
         private RunState runState;
@@ -25,6 +28,11 @@ namespace Weave.Simulation
         public RunState RunState => runState;
         public IReadOnlyList<LocationDefinition> Locations => locations;
         public IReadOnlyList<CharacterDefinition> Characters => characters;
+        public IReadOnlyList<TaskDefinition> Tasks => tasks;
+        public IReadOnlyList<ResourceDefinition> Resources => resources;
+        public float SameLocationPreparationSeconds => Mathf.Max(sameLocationPreparationSeconds, 0.01f);
+        public float SecondsPerDistanceUnit => Mathf.Max(secondsPerDistanceUnit, 0.01f);
+        public float CarryPenaltyPerWeightUnit => Mathf.Max(carryPenaltyPerWeightUnit, 0f);
         public SimulationSpeedMode SelectedSpeedMode => selectedSpeedMode;
         public SimulationSpeedMode EffectiveSpeedMode =>
             pauseOverrideDepth > 0 ? SimulationSpeedMode.Paused : selectedSpeedMode;
@@ -33,7 +41,8 @@ namespace Weave.Simulation
             GameCalendarDefinition configuredCalendar,
             IEnumerable<LocationDefinition> configuredLocations,
             IEnumerable<CharacterDefinition> configuredCharacters,
-            IEnumerable<TaskDefinition> configuredTasks)
+            IEnumerable<TaskDefinition> configuredTasks,
+            IEnumerable<ResourceDefinition> configuredResources)
         {
             calendarDefinition = configuredCalendar;
             locations = configuredLocations != null
@@ -45,6 +54,9 @@ namespace Weave.Simulation
             tasks = configuredTasks != null
                 ? new List<TaskDefinition>(configuredTasks)
                 : new List<TaskDefinition>();
+            resources = configuredResources != null
+                ? new List<ResourceDefinition>(configuredResources)
+                : new List<ResourceDefinition>();
         }
 
         public void StartRun(CharacterDefinition controlledCharacter)
@@ -53,6 +65,77 @@ namespace Weave.Simulation
             pauseOverrideDepth = 0;
             selectedSpeedMode = SimulationSpeedMode.Normal;
             NotifyStateChanged();
+        }
+
+        public float GetEstimatedTravelDuration(TaskDefinition task)
+        {
+            if (runState == null)
+            {
+                return 0f;
+            }
+
+            return simulation.EstimateTravelDuration(
+                runState,
+                GetControlledCharacter(),
+                task,
+                locations,
+                resources,
+                SecondsPerDistanceUnit,
+                SameLocationPreparationSeconds,
+                CarryPenaltyPerWeightUnit);
+        }
+
+        public float GetCharacterCarriedWeight(string characterId)
+        {
+            if (runState == null || string.IsNullOrEmpty(characterId))
+            {
+                return 0f;
+            }
+
+            var characterState = runState.GetCharacter(characterId);
+            var weightLookup = new Dictionary<string, float>();
+
+            foreach (var resource in resources)
+            {
+                if (resource == null || string.IsNullOrEmpty(resource.ResourceId))
+                {
+                    continue;
+                }
+
+                weightLookup[resource.ResourceId] = resource.CarryWeightPerUnit;
+            }
+
+            var total = 0f;
+
+            foreach (var carried in characterState.CarriedResources)
+            {
+                if (carried.Value <= 0)
+                {
+                    continue;
+                }
+
+                if (!weightLookup.TryGetValue(carried.Key, out var weightPerUnit))
+                {
+                    weightPerUnit = 1f;
+                }
+
+                total += carried.Value * Mathf.Max(0f, weightPerUnit);
+            }
+
+            return total;
+        }
+
+        public string GetResourceDisplayName(string resourceId)
+        {
+            foreach (var resource in resources)
+            {
+                if (resource != null && resource.ResourceId == resourceId)
+                {
+                    return string.IsNullOrEmpty(resource.DisplayName) ? resource.ResourceId : resource.DisplayName;
+                }
+            }
+
+            return resourceId;
         }
 
         public void SetSimulationSpeed(SimulationSpeedMode speedMode)
@@ -121,7 +204,7 @@ namespace Weave.Simulation
                 runState,
                 GetControlledCharacter(),
                 task,
-                Mathf.Max(travelDurationSeconds, 0.01f));
+                GetEstimatedTravelDuration(task));
             NotifyStateChanged();
             return command;
         }

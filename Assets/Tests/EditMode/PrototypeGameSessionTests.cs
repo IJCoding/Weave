@@ -43,13 +43,20 @@ namespace Weave.Tests.EditMode
             {
                 new ResourceAmount { ResourceId = "iron", Amount = 2 }
             });
+            SerializedFieldUtility.SetPrivateField(task, "rewardsAddedToCarriedResources", true);
+
+            var iron = ScriptableObject.CreateInstance<ResourceDefinition>();
+            SerializedFieldUtility.SetPrivateField(iron, "resourceId", "iron");
+            SerializedFieldUtility.SetPrivateField(iron, "displayName", "Iron Ore");
+            SerializedFieldUtility.SetPrivateField(iron, "carryWeightPerUnit", 2f);
 
             var gameObject = new GameObject("Session Under Test");
             try
             {
                 var session = gameObject.AddComponent<PrototypeGameSession>();
-                SerializedFieldUtility.SetPrivateField(session, "travelDurationSeconds", 1f);
-                session.Configure(calendar, new[] { home, mine }, new[] { miner }, new[] { task });
+                SerializedFieldUtility.SetPrivateField(session, "secondsPerDistanceUnit", 0.25f);
+                SerializedFieldUtility.SetPrivateField(session, "sameLocationPreparationSeconds", 1f);
+                session.Configure(calendar, new[] { home, mine }, new[] { miner }, new[] { task }, new[] { iron });
                 session.StartRun(miner);
 
                 Assert.That(session.GetPlayerTasks(), Has.Count.EqualTo(1));
@@ -63,13 +70,13 @@ namespace Weave.Tests.EditMode
                 Assert.That(session.RunState.GetCharacter("miner").CurrentLocationId, Is.EqualTo("mine"));
                 Assert.That(session.RunState.GetCharacter("miner").CurrentTaskId, Is.EqualTo("mine_iron"));
                 Assert.That(session.RunState.GetCharacter("miner").TaskElapsedSeconds, Is.EqualTo(0f));
-                Assert.That(session.RunState.GetCharacter("miner").GetResource("iron"), Is.EqualTo(0));
+                Assert.That(session.RunState.GetCharacter("miner").GetCarriedResource("iron"), Is.EqualTo(0));
 
                 session.AdvanceSimulation(4f);
-                Assert.That(session.RunState.GetCharacter("miner").GetResource("iron"), Is.EqualTo(0));
+                Assert.That(session.RunState.GetCharacter("miner").GetCarriedResource("iron"), Is.EqualTo(0));
 
                 session.AdvanceSimulation(1f);
-                Assert.That(session.RunState.GetCharacter("miner").GetResource("iron"), Is.EqualTo(2));
+                Assert.That(session.RunState.GetCharacter("miner").GetCarriedResource("iron"), Is.EqualTo(2));
             }
             finally
             {
@@ -99,7 +106,7 @@ namespace Weave.Tests.EditMode
                 try
                 {
                     var session = gameObject.AddComponent<PrototypeGameSession>();
-                    session.Configure(calendar, new[] { home }, new[] { miner }, new TaskDefinition[0]);
+                    session.Configure(calendar, new[] { home }, new[] { miner }, new TaskDefinition[0], new ResourceDefinition[0]);
                     session.StartRun(miner);
                     session.SetSimulationSpeed(SimulationSpeedMode.FastForward);
                     session.PushPauseOverride();
