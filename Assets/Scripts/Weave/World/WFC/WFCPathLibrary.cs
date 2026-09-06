@@ -55,14 +55,20 @@ namespace Weave.World.WFC
             foreach (var guid in spriteGuids)
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
-                var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
-                if (sprite != null)
+                var subAssets = AssetDatabase.LoadAllAssetsAtPath(path);
+                foreach (var asset in subAssets)
                 {
-                    loadedSprites.Add(sprite);
+                    if (asset is Sprite sprite)
+                    {
+                        loadedSprites.Add(sprite);
+                    }
                 }
             }
 
-            sourceSprites = loadedSprites.OrderBy(sprite => sprite.name, StringComparer.OrdinalIgnoreCase).ToList();
+            sourceSprites = loadedSprites
+                .Distinct()
+                .OrderBy(sprite => sprite.name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             EditorUtility.SetDirty(this);
 #else
             Debug.LogWarning("RefreshSourceSpritesFromFolder is editor-only.");
