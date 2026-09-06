@@ -57,8 +57,10 @@ namespace Weave.Simulation
                 return;
             }
 
-            simulation.TickTravel(runState, characterId, travelStep);
-            NotifyStateChanged();
+            if (simulation.TickTravel(runState, characterId, travelStep))
+            {
+                NotifyStateChanged();
+            }
         }
 
         public void ResolvePlayerTask(TaskDefinition task)
@@ -68,8 +70,10 @@ namespace Weave.Simulation
                 return;
             }
 
-            simulation.ResolveTask(runState, GetControlledCharacter(), task);
-            NotifyStateChanged();
+            if (simulation.ResolveTask(runState, GetControlledCharacter(), task))
+            {
+                NotifyStateChanged();
+            }
         }
 
         public EventResolution ResolvePlayerEvent(EventDefinition eventDefinition, string selectedOptionId)

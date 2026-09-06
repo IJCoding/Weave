@@ -134,33 +134,39 @@ namespace Weave.Simulation
                 characterState.TravelDestinationLocationId);
         }
 
-        public void TickTravel(RunState runState, string characterId, float step)
+        public bool TickTravel(RunState runState, string characterId, float step)
         {
+            if (step <= 0f)
+            {
+                return false;
+            }
+
             var characterState = runState.GetCharacter(characterId);
 
             if (characterState.TravelDestinationLocationId == characterState.CurrentLocationId &&
                 characterState.TravelProgress <= 0f)
             {
-                return;
+                return false;
             }
 
             characterState.TravelProgress += step;
 
             if (characterState.TravelProgress < 1f)
             {
-                return;
+                return true;
             }
 
             characterState.TravelProgress = 0f;
             characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
             characterState.TravelOriginLocationId = characterState.CurrentLocationId;
+            return true;
         }
 
-        public void ResolveTask(RunState runState, CharacterDefinition actor, TaskDefinition task)
+        public bool ResolveTask(RunState runState, CharacterDefinition actor, TaskDefinition task)
         {
             if (!IsTaskAvailable(actor, task, runState))
             {
-                return;
+                return false;
             }
 
             var actorState = runState.GetCharacter(actor.CharacterId);
@@ -168,7 +174,7 @@ namespace Weave.Simulation
             if (actorState.IsTravelling ||
                 actorState.CurrentLocationId != task.RequiredLocation.LocationId)
             {
-                return;
+                return false;
             }
 
             foreach (var change in task.ActorResourceChanges)
@@ -177,6 +183,7 @@ namespace Weave.Simulation
             }
 
             actorState.CurrentTaskId = string.Empty;
+            return true;
         }
 
         public EventResolution ResolveNpcEvent(
