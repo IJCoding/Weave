@@ -31,6 +31,7 @@ namespace Weave.Presentation
         }
 
         private readonly Dictionary<string, SpriteRenderer> characterMarkers = new Dictionary<string, SpriteRenderer>();
+        private readonly List<UnityEngine.Object> runtimeDefinitions = new List<UnityEngine.Object>();
 
         private PrototypeGameSession session;
         private PlayerCanonState playerCanon = new PlayerCanonState();
@@ -90,6 +91,13 @@ namespace Weave.Presentation
                 DestroyObject(markerSprite.texture);
                 DestroyObject(markerSprite);
             }
+
+            foreach (var runtimeDefinition in runtimeDefinitions)
+            {
+                DestroyObject(runtimeDefinition);
+            }
+
+            runtimeDefinitions.Clear();
         }
 
         private void OnGUI()
@@ -138,7 +146,10 @@ namespace Weave.Presentation
                 if (GUILayout.Button("Advance travel by 25%"))
                 {
                     session.TickCharacterTravel(controlledCharacter.CharacterId, 0.25f);
-                    statusMessage = $"{controlledCharacter.DisplayName} advanced toward {GetLocationDisplayName(controlledState.TravelDestinationLocationId)}.";
+                    var updatedState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+                    statusMessage = updatedState.IsTravelling
+                        ? $"{controlledCharacter.DisplayName} advanced toward {GetLocationDisplayName(updatedState.TravelDestinationLocationId)}."
+                        : $"{controlledCharacter.DisplayName} arrived at {GetLocationDisplayName(updatedState.CurrentLocationId)}.";
                 }
 
                 if (GUILayout.Button("Arrive now"))
@@ -157,7 +168,8 @@ namespace Weave.Presentation
                 if (GUILayout.Button($"Resolve task: {activeTask.DisplayName}"))
                 {
                     session.ResolvePlayerTask(activeTask);
-                    statusMessage = $"Resolved {activeTask.DisplayName}. {controlledCharacter.DisplayName} now has {FormatResources(controlledState)}.";
+                    var updatedState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+                    statusMessage = $"Resolved {activeTask.DisplayName}. {controlledCharacter.DisplayName} now has {FormatResources(updatedState)}.";
                     activeTask = null;
                 }
             }
@@ -304,14 +316,15 @@ namespace Weave.Presentation
 
         private ShowcaseScenario CreateScenario()
         {
+            runtimeDefinitions.Clear();
             var scenario = new ShowcaseScenario();
-            scenario.Calendar = CreateCalendar();
+            scenario.Calendar = Track(CreateCalendar());
 
-            var villageSquare = CreateLocation("village_square", "Village Square", LocationType.Village, new Vector2(0f, 0f));
-            var easternMine = CreateLocation("eastern_mine", "Eastern Mine", LocationType.Mine, new Vector2(3.6f, 1.8f));
-            var pineForest = CreateLocation("pine_forest", "Pine Forest", LocationType.Forest, new Vector2(-3.5f, 1.5f));
-            var riversideFarm = CreateLocation("riverside_farm", "Riverside Farm", LocationType.Farm, new Vector2(-2.75f, -2.25f));
-            var oldWorkshop = CreateLocation("old_workshop", "Old Workshop", LocationType.Workshop, new Vector2(2.2f, -2f));
+            var villageSquare = Track(CreateLocation("village_square", "Village Square", LocationType.Village, new Vector2(0f, 0f)));
+            var easternMine = Track(CreateLocation("eastern_mine", "Eastern Mine", LocationType.Mine, new Vector2(3.6f, 1.8f)));
+            var pineForest = Track(CreateLocation("pine_forest", "Pine Forest", LocationType.Forest, new Vector2(-3.5f, 1.5f)));
+            var riversideFarm = Track(CreateLocation("riverside_farm", "Riverside Farm", LocationType.Farm, new Vector2(-2.75f, -2.25f)));
+            var oldWorkshop = Track(CreateLocation("old_workshop", "Old Workshop", LocationType.Workshop, new Vector2(2.2f, -2f)));
 
             scenario.Locations = new List<LocationDefinition>
             {
@@ -322,7 +335,7 @@ namespace Weave.Presentation
                 oldWorkshop
             };
 
-            var mina = CreateCharacter(
+            var mina = Track(CreateCharacter(
                 "mina",
                 "Mina",
                 ProfessionType.Miner,
@@ -335,9 +348,9 @@ namespace Weave.Presentation
                     new ResourceAmount { ResourceId = "goodwill", Amount = 0 },
                     new ResourceAmount { ResourceId = "tools", Amount = 0 }
                 },
-                new List<CanonDecisionDefault>());
+                new List<CanonDecisionDefault>()));
 
-            var rowan = CreateCharacter(
+            var rowan = Track(CreateCharacter(
                 "rowan",
                 "Rowan",
                 ProfessionType.Blacksmith,
@@ -350,9 +363,9 @@ namespace Weave.Presentation
                 new List<CanonDecisionDefault>
                 {
                     new CanonDecisionDefault { DecisionKey = RowanDecisionKey, DefaultOptionId = ShareSuppliesOptionId }
-                });
+                }));
 
-            var elara = CreateCharacter(
+            var elara = Track(CreateCharacter(
                 "elara",
                 "Elara",
                 ProfessionType.Farmer,
@@ -362,35 +375,35 @@ namespace Weave.Presentation
                 {
                     new ResourceAmount { ResourceId = "grain", Amount = 4 }
                 },
-                new List<CanonDecisionDefault>());
+                new List<CanonDecisionDefault>()));
 
             scenario.ControlledCharacter = mina;
             scenario.Characters = new List<CharacterDefinition> { mina, rowan, elara };
 
             scenario.Tasks = new List<TaskDefinition>
             {
-                CreateTask(
+                Track(CreateTask(
                     "mine_iron",
                     "Mine Iron",
                     easternMine,
                     new List<CharacterDefinition> { mina },
-                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "iron", Amount = 2 } }),
-                CreateTask(
+                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "iron", Amount = 2 } })),
+                Track(CreateTask(
                     "gather_timber",
                     "Gather Timber",
                     pineForest,
                     new List<CharacterDefinition>(),
-                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "wood", Amount = 3 } }),
-                CreateTask(
+                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "wood", Amount = 3 } })),
+                Track(CreateTask(
                     "inspect_workshop",
                     "Inspect Workshop",
                     oldWorkshop,
                     new List<CharacterDefinition>(),
-                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "goodwill", Amount = 1 } })
+                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "goodwill", Amount = 1 } }))
             };
 
-            scenario.PlayerEvent = CreatePlayerEvent(mina);
-            scenario.NpcEvent = CreateNpcEvent(mina, rowan);
+            scenario.PlayerEvent = Track(CreatePlayerEvent(mina));
+            scenario.NpcEvent = Track(CreateNpcEvent(mina, rowan));
             return scenario;
         }
 
@@ -721,6 +734,13 @@ namespace Weave.Presentation
             }
 
             DestroyImmediate(target);
+        }
+
+        private T Track<T>(T target)
+            where T : UnityEngine.Object
+        {
+            runtimeDefinitions.Add(target);
+            return target;
         }
     }
 }
