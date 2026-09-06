@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Weave.Data;
 
 namespace Weave.Runtime
@@ -122,8 +123,20 @@ namespace Weave.Runtime
     }
 
     [Serializable]
-    public sealed class PlayerCanonState
+    public sealed class PlayerCanonDecisionRecord
     {
+        public string CharacterId;
+        public string DecisionKey;
+        public string OptionId;
+    }
+
+    [Serializable]
+    public sealed class PlayerCanonState
+        : ISerializationCallbackReceiver
+    {
+        [SerializeField] private List<PlayerCanonDecisionRecord> serializedDecisions =
+            new List<PlayerCanonDecisionRecord>();
+
         private readonly Dictionary<string, Dictionary<string, string>> decisionsByCharacter =
             new Dictionary<string, Dictionary<string, string>>();
 
@@ -148,6 +161,45 @@ namespace Weave.Runtime
             }
 
             characterDecisions[decisionKey] = optionId;
+        }
+
+        public void OnBeforeSerialize()
+        {
+            serializedDecisions.Clear();
+
+            foreach (var characterEntry in decisionsByCharacter)
+            {
+                foreach (var decisionEntry in characterEntry.Value)
+                {
+                    serializedDecisions.Add(new PlayerCanonDecisionRecord
+                    {
+                        CharacterId = characterEntry.Key,
+                        DecisionKey = decisionEntry.Key,
+                        OptionId = decisionEntry.Value
+                    });
+                }
+            }
+        }
+
+        public void OnAfterDeserialize()
+        {
+            decisionsByCharacter.Clear();
+
+            foreach (var record in serializedDecisions)
+            {
+                if (string.IsNullOrEmpty(record.CharacterId) || string.IsNullOrEmpty(record.DecisionKey))
+                {
+                    continue;
+                }
+
+                if (!decisionsByCharacter.TryGetValue(record.CharacterId, out var characterDecisions))
+                {
+                    characterDecisions = new Dictionary<string, string>();
+                    decisionsByCharacter[record.CharacterId] = characterDecisions;
+                }
+
+                characterDecisions[record.DecisionKey] = record.OptionId;
+            }
         }
     }
 

@@ -1402,8 +1402,7 @@ namespace Weave.Presentation
             eventSystemObject.AddComponent<EventSystem>();
 #if ENABLE_INPUT_SYSTEM
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
-#endif
-#if ENABLE_LEGACY_INPUT_MANAGER
+#elif ENABLE_LEGACY_INPUT_MANAGER
             eventSystemObject.AddComponent<StandaloneInputModule>();
 #endif
         }
