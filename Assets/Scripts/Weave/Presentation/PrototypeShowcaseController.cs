@@ -96,14 +96,19 @@ namespace Weave.Presentation
             controlledCharacter = scenario.ControlledCharacter;
             if (controlledCharacter == null)
             {
-                Debug.LogError("AuthoredVillageScenario requires a controlled character definition.", this);
-                enabled = false;
-                return;
+                foreach (var npc in worldRegistry.Npcs)
+                {
+                    if (npc != null && npc.CharacterDefinition != null)
+                    {
+                        controlledCharacter = npc.CharacterDefinition;
+                        break;
+                    }
+                }
             }
 
-            if (worldRegistry.FindNpc(controlledCharacter.CharacterId) != null)
+            if (controlledCharacter == null)
             {
-                Debug.LogError($"Controlled character id '{controlledCharacter.CharacterId}' is also assigned to an authored NPC.", this);
+                Debug.LogError("AuthoredVillageScenario requires a controlled character definition.", this);
                 enabled = false;
                 return;
             }
@@ -123,13 +128,6 @@ namespace Weave.Presentation
             session.SimulationLogEntryAdded += HandleSimulationLogEntryAdded;
             AuthoredVillageLocation.Clicked += HandleLocationClicked;
             session.StartRun(controlledCharacter);
-            if (!session.IsRunInitialized || session.RunState == null)
-            {
-                Debug.LogError("Prototype run failed to initialize. See earlier errors for setup details.", this);
-                enabled = false;
-                return;
-            }
-
             RefreshPresentation();
             UpdateCharacterVisuals();
             RebuildActivityConsoleFromSession();
@@ -239,7 +237,7 @@ namespace Weave.Presentation
 
         private static void EnsureEventSystem()
         {
-            if (FindFirstObjectByType<EventSystem>() != null)
+            if (FindAnyObjectByType<EventSystem>() != null)
             {
                 return;
             }
@@ -319,11 +317,6 @@ namespace Weave.Presentation
         private void RefreshPresentation()
         {
             if (session == null || session.RunState == null || controlledCharacter == null || suppressRefresh)
-            {
-                return;
-            }
-
-            if (!session.IsRunInitialized)
             {
                 return;
             }

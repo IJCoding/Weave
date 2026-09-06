@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Weave.Data;
+using Weave.Runtime;
 
 namespace Weave.World
 {
@@ -17,8 +19,10 @@ namespace Weave.World
         [SerializeField] private TextMesh labelMesh;
         [SerializeField] private Color fallbackColor = new Color(0.92f, 0.74f, 0.29f, 1f);
 
-        public CharacterDefinition CharacterDefinition => characterDefinition;
-        public string CharacterId => characterDefinition != null ? characterDefinition.CharacterId : string.Empty;
+        private CharacterDefinition runtimeCharacterDefinition;
+
+        public CharacterDefinition CharacterDefinition => EnsureCharacterDefinition();
+        public string CharacterId => EnsureCharacterDefinition() != null ? EnsureCharacterDefinition().CharacterId : string.Empty;
         public string DisplayName => !string.IsNullOrWhiteSpace(displayNameOverride)
             ? displayNameOverride
             : characterDefinition != null && !string.IsNullOrWhiteSpace(characterDefinition.DisplayName)
@@ -30,6 +34,55 @@ namespace Weave.World
         public float TalkDurationSeconds => Mathf.Max(0.1f, talkDurationSeconds);
         public bool InteractionAvailable => interactionAvailable;
 
+        private CharacterDefinition EnsureCharacterDefinition()
+        {
+            if (characterDefinition != null && !string.IsNullOrWhiteSpace(characterDefinition.CharacterId))
+            {
+                return characterDefinition;
+            }
+
+            if (runtimeCharacterDefinition != null)
+            {
+                return runtimeCharacterDefinition;
+            }
+
+            runtimeCharacterDefinition = ScriptableObject.CreateInstance<CharacterDefinition>();
+
+            var sourceName = !string.IsNullOrWhiteSpace(displayNameOverride)
+                ? displayNameOverride
+                : characterDefinition != null && !string.IsNullOrWhiteSpace(characterDefinition.DisplayName)
+                    ? characterDefinition.DisplayName
+                    : gameObject.name;
+            var fallbackId = sourceName.Trim().Replace(' ', '_').ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(fallbackId))
+            {
+                fallbackId = gameObject.name.Trim().Replace(' ', '_').ToLowerInvariant();
+            }
+
+            var profession = characterDefinition != null ? characterDefinition.Profession : ProfessionType.Villager;
+            var mapColor = characterDefinition != null ? characterDefinition.MapColor : fallbackColor;
+            var homeDefinition = homeLocation != null ? homeLocation.LocationDefinition : characterDefinition != null ? characterDefinition.HomeLocation : null;
+            var homeLocationId = homeLocation != null
+                ? homeLocation.LocationId
+                : characterDefinition != null ? characterDefinition.HomeLocationId : string.Empty;
+            var startingResources = characterDefinition != null
+                ? new List<ResourceAmount>(characterDefinition.StartingResources)
+                : new List<ResourceAmount>();
+            var developerCanon = characterDefinition != null
+                ? new List<CanonDecisionDefault>(characterDefinition.DeveloperCanon)
+                : new List<CanonDecisionDefault>();
+
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "characterId", fallbackId);
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "displayName", sourceName);
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "profession", profession);
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "mapColor", mapColor);
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "homeLocation", homeDefinition);
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "homeLocationId", homeLocationId);
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "startingResources", startingResources);
+            SerializedFieldUtility.SetPrivateField(runtimeCharacterDefinition, "developerCanon", developerCanon);
+            return runtimeCharacterDefinition;
+        }
+
         public void ApplyRuntimePosition(Vector2 position)
         {
             transform.position = new Vector3(position.x, position.y, transform.position.z);
@@ -37,18 +90,21 @@ namespace Weave.World
 
         private void Reset()
         {
+            runtimeCharacterDefinition = null;
             EnsureReferences();
             ApplyVisuals();
         }
 
         private void Awake()
         {
+            runtimeCharacterDefinition = null;
             EnsureReferences();
             ApplyVisuals();
         }
 
         private void OnValidate()
         {
+            runtimeCharacterDefinition = null;
             EnsureReferences();
             ApplyVisuals();
         }
@@ -90,6 +146,8 @@ namespace Weave.World
 
         private void ApplyVisuals()
         {
+            EnsureCharacterDefinition();
+
             if (visualRenderer != null)
             {
                 visualRenderer.sprite = PrototypeSpriteLibrary.GetCircleSprite();
