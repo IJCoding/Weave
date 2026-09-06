@@ -482,29 +482,29 @@ namespace Weave.Simulation
                 return null;
             }
 
-            private CharacterDefinition FindCharacterById(string characterId)
-            {
-                if (string.IsNullOrEmpty(characterId))
-                {
-                    return null;
-                }
-
-                foreach (var character in characters)
-                {
-                    if (character != null && character.CharacterId == characterId)
-                    {
-                        return character;
-                    }
-                }
-
-                return null;
-            }
-
             foreach (var task in tasks)
             {
                 if (task != null && task.TaskId == taskId)
                 {
                     return task;
+                }
+            }
+
+            return null;
+        }
+
+        private CharacterDefinition FindCharacterById(string characterId)
+        {
+            if (string.IsNullOrEmpty(characterId))
+            {
+                return null;
+            }
+
+            foreach (var character in characters)
+            {
+                if (character != null && character.CharacterId == characterId)
+                {
+                    return character;
                 }
             }
 
