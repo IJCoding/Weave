@@ -73,7 +73,6 @@ namespace Weave.Presentation
         private readonly Dictionary<string, Text> locationCoordinateTexts = new Dictionary<string, Text>();
         private readonly List<UnityEngine.Object> runtimeDefinitions = new List<UnityEngine.Object>();
         private readonly List<TaskButtonView> taskButtons = new List<TaskButtonView>();
-        private readonly HashSet<string> loggedDecisionRequests = new HashSet<string>();
 
         private PrototypeGameSession session;
         [SerializeField] private ProgressPhaseTheme phaseTheme = new ProgressPhaseTheme();
@@ -544,7 +543,7 @@ namespace Weave.Presentation
                 new Vector2(-16f, -52f),
                 new Color(0.08f, 0.11f, 0.15f, 0.92f));
             var viewportMask = activityViewport.gameObject.AddComponent<Mask>();
-            viewportMask.showMaskGraphic = false;
+            viewportMask.showMaskGraphic = true;
             activityScrollRect = activityViewport.gameObject.AddComponent<ScrollRect>();
             activityScrollRect.horizontal = false;
             activityScrollRect.vertical = true;
@@ -937,7 +936,6 @@ namespace Weave.Presentation
         {
             ClosePopupIfOpen();
             playerCanon = new PlayerCanonState();
-            loggedDecisionRequests.Clear();
             session.StartRun(controlledCharacter);
             RebuildActivityConsoleFromSession();
             RefreshPresentation();
@@ -982,17 +980,7 @@ namespace Weave.Presentation
             popupSourceText.text = GetEventSourceLabel(eventDefinition);
             popupSourceText.gameObject.SetActive(!string.IsNullOrEmpty(popupSourceText.text));
             popupBodyText.text = eventDefinition.Prompt;
-            var decisionMaker = eventDefinition.DecisionMaker != null ? eventDefinition.DecisionMaker.CharacterId : controlledCharacter.CharacterId;
-            var currentDay = session?.RunState?.Calendar != null ? session.RunState.Calendar.DayOfSeason : 0;
-            var eventRequestKey = string.IsNullOrEmpty(eventDefinition.EventId)
-                ? GetEventTitle(eventDefinition)
-                : eventDefinition.EventId;
-            eventRequestKey = $"{currentDay}:{decisionMaker}:{eventRequestKey}";
-            if (!loggedDecisionRequests.Contains(eventRequestKey))
-            {
-                loggedDecisionRequests.Add(eventRequestKey);
-                session.LogDecisionRequested(eventDefinition);
-            }
+            session.LogDecisionRequested(eventDefinition);
             ClearPopupChoices();
 
             foreach (var option in eventDefinition.Options)
