@@ -922,6 +922,7 @@ namespace Weave.Presentation
         private void RefreshTaskButtons(CharacterState controlledState, ActionProgressSummary activeActionProgress)
         {
             var availableTaskIds = new HashSet<string>();
+            var currentLocationTaskIds = new HashSet<string>();
             var isBusy = controlledState.IsTravelling || controlledState.IsWorkingOnTask;
             var currentLocationName = GetLocationDisplayName(controlledState.CurrentLocationId).ToUpperInvariant();
             if (actionLocationHeaderText != null)
@@ -946,6 +947,19 @@ namespace Weave.Presentation
                 }
             }
 
+            foreach (var task in tasks)
+            {
+                if (task == null ||
+                    task.CompleteOnArrival ||
+                    task.RequiredLocation == null ||
+                    task.RequiredLocation.LocationId != controlledState.CurrentLocationId)
+                {
+                    continue;
+                }
+
+                currentLocationTaskIds.Add(task.TaskId);
+            }
+
             if (!isBusy && availableTaskIds.Count == 0 && actionPanelStatusText != null)
             {
                 actionPanelStatusText.text = "No actions available at this location.";
@@ -953,6 +967,7 @@ namespace Weave.Presentation
 
             foreach (var taskButton in taskButtons)
             {
+                var visibleAtLocation = currentLocationTaskIds.Contains(taskButton.Task.TaskId);
                 var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !isBusy;
                 taskButton.Button.interactable = available;
                 var isSelectedTask = controlledState.HasActiveTask && controlledState.CurrentTaskId == taskButton.Task.TaskId;
@@ -966,7 +981,7 @@ namespace Weave.Presentation
                     : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " • Unavailable";
                 var statusLine = isSelectedTask
                     ? GetActiveTaskStatusLine(progress, taskButton.Task)
-                    : availableTaskIds.Contains(taskButton.Task.TaskId)
+                    : visibleAtLocation
                         ? "Local action"
                         : "Not available here";
                 if (!string.IsNullOrEmpty(suffix))
@@ -977,7 +992,10 @@ namespace Weave.Presentation
                 taskButton.Label.alignment = TextAnchor.UpperLeft;
                 taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s)\n{statusLine}";
                 RefreshTaskPhaseBar(taskButton, progress, isSelectedTask);
-                taskButton.Button.gameObject.SetActive(availableTaskIds.Contains(taskButton.Task.TaskId) || isSelectedTask);
+                taskButton.Button.gameObject.SetActive(
+                    controlledState.IsTravelling
+                        ? isSelectedTask
+                        : visibleAtLocation || isSelectedTask);
             }
         }
 

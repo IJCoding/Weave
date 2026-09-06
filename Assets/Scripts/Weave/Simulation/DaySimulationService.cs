@@ -206,7 +206,11 @@ namespace Weave.Simulation
                 return MinimumDurationSeconds;
             }
 
-            var characterState = runState.GetCharacter(character.CharacterId);
+            if (!runState.Characters.TryGetValue(character.CharacterId, out var characterState) || characterState == null)
+            {
+                return MinimumDurationSeconds;
+            }
+
             var origin = GetLocationPosition(characterState.CurrentLocationId, locations);
             var destination = GetLocationPosition(destinationLocationId, locations);
             var distance = Vector2.Distance(origin, destination);
