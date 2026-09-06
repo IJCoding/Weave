@@ -479,7 +479,7 @@ namespace Weave.World
             runtimeLocations.Clear();
             runtimeLocationsById.Clear();
 
-            foreach (var location in locations)
+            foreach (var location in locationsById.Values)
             {
                 if (location == null || string.IsNullOrWhiteSpace(location.LocationId))
                 {

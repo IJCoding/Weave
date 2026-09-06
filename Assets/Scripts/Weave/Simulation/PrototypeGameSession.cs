@@ -645,9 +645,11 @@ namespace Weave.Simulation
 
         private IEnumerable<TaskDefinition> GetAllKnownTasks()
         {
+            var seenTaskIds = new HashSet<string>();
+
             foreach (var task in tasks)
             {
-                if (task != null)
+                if (task != null && seenTaskIds.Add(task.TaskId))
                 {
                     yield return task;
                 }
@@ -655,7 +657,7 @@ namespace Weave.Simulation
 
             foreach (var generatedTask in generatedTasks.Values)
             {
-                if (generatedTask != null)
+                if (generatedTask != null && seenTaskIds.Add(generatedTask.TaskId))
                 {
                     yield return generatedTask;
                 }

@@ -654,6 +654,12 @@ namespace Weave.Presentation
                 return;
             }
 
+            if (task.TaskId.StartsWith("talk::", StringComparison.Ordinal) && task.FollowUpEvent != null)
+            {
+                ShowDecisionPopup(task.FollowUpEvent);
+                return;
+            }
+
             session.AssignPlayerTask(task);
             RefreshPresentation();
         }
