@@ -110,13 +110,12 @@ namespace Weave.Presentation
             seasonNames = new List<string>(scenario.Calendar.Seasons);
 
             session.Configure(scenario.Calendar, locations, characters, tasks);
-            session.StateChanged += RefreshPresentation;
-            session.SimulationAdvanced += HandleSimulationAdvanced;
-            session.StartRun(controlledCharacter);
-
             ConfigureCamera();
             BuildRuntimeVisuals();
             BuildRuntimeUi();
+            session.StateChanged += RefreshPresentation;
+            session.SimulationAdvanced += HandleSimulationAdvanced;
+            session.StartRun(controlledCharacter);
             ApplyFixedAspect();
             UpdateCharacterMarkers();
             RefreshPresentation();
@@ -650,7 +649,11 @@ namespace Weave.Presentation
 
         private void RefreshPresentation()
         {
-            if (session == null || session.RunState == null || controlledCharacter == null)
+            if (session == null ||
+                session.RunState == null ||
+                controlledCharacter == null ||
+                dayText == null ||
+                timeRemainingText == null)
             {
                 return;
             }
@@ -695,9 +698,10 @@ namespace Weave.Presentation
             {
                 var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !controlledState.HasActiveTask;
                 taskButton.Button.interactable = available;
-                taskButton.Label.text = available
-                    ? $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s)"
-                    : $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s)";
+                var suffix = controlledState.HasActiveTask
+                    ? " — Busy"
+                    : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " — Unavailable";
+                taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s){suffix}";
             }
         }
 
