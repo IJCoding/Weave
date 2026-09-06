@@ -56,14 +56,18 @@ namespace Weave.Data
     public sealed class EventDefinition : ScriptableObject
     {
         [SerializeField] private string eventId = string.Empty;
+        [SerializeField] private string title = string.Empty;
         [SerializeField] private string prompt = string.Empty;
+        [SerializeField] private string sourceLabel = string.Empty;
         [SerializeField] private CharacterDefinition decisionMaker;
         [SerializeField] private string decisionKey = string.Empty;
         [SerializeField] private List<WorldFlagRequirement> triggerConditions = new List<WorldFlagRequirement>();
         [SerializeField] private List<DecisionOptionDefinition> options = new List<DecisionOptionDefinition>();
 
         public string EventId => eventId;
+        public string Title => title;
         public string Prompt => prompt;
+        public string SourceLabel => sourceLabel;
         public CharacterDefinition DecisionMaker => decisionMaker;
         public string DecisionKey => decisionKey;
         public IReadOnlyList<WorldFlagRequirement> TriggerConditions => triggerConditions;

@@ -4,6 +4,13 @@ using Weave.Data;
 
 namespace Weave.Runtime
 {
+    public enum TaskPhase
+    {
+        None,
+        Travelling,
+        Working
+    }
+
     [Serializable]
     public sealed class CalendarState
     {
@@ -41,6 +48,24 @@ namespace Weave.Runtime
     }
 
     [Serializable]
+    public sealed class DayTimerState
+    {
+        public float DurationSeconds;
+        public float RemainingSeconds;
+
+        public DayTimerState(float durationSeconds)
+        {
+            Reset(durationSeconds);
+        }
+
+        public void Reset(float durationSeconds)
+        {
+            DurationSeconds = durationSeconds > 0f ? durationSeconds : 1f;
+            RemainingSeconds = DurationSeconds;
+        }
+    }
+
+    [Serializable]
     public sealed class LocationState
     {
         public string LocationId;
@@ -61,6 +86,10 @@ namespace Weave.Runtime
         public string TravelDestinationLocationId;
         public float TravelProgress;
         public string CurrentTaskId;
+        public TaskPhase CurrentTaskPhase;
+        public float TravelDurationSeconds;
+        public float TaskElapsedSeconds;
+        public float TaskDurationSeconds;
         public Dictionary<string, int> Resources = new Dictionary<string, int>();
 
         public CharacterState(CharacterDefinition definition)
@@ -69,6 +98,7 @@ namespace Weave.Runtime
             CurrentLocationId = definition.HomeLocation != null ? definition.HomeLocation.LocationId : string.Empty;
             TravelOriginLocationId = CurrentLocationId;
             TravelDestinationLocationId = CurrentLocationId;
+            CurrentTaskPhase = TaskPhase.None;
 
             foreach (var resource in definition.StartingResources)
             {
@@ -76,7 +106,9 @@ namespace Weave.Runtime
             }
         }
 
-        public bool IsTravelling => TravelDestinationLocationId != CurrentLocationId;
+        public bool HasActiveTask => !string.IsNullOrEmpty(CurrentTaskId);
+        public bool IsTravelling => CurrentTaskPhase == TaskPhase.Travelling && TravelDestinationLocationId != CurrentLocationId;
+        public bool IsWorkingOnTask => CurrentTaskPhase == TaskPhase.Working && HasActiveTask;
 
         public int GetResource(string resourceId)
         {
@@ -92,14 +124,14 @@ namespace Weave.Runtime
     [Serializable]
     public sealed class PlayerCanonState
     {
-        public Dictionary<string, Dictionary<string, string>> DecisionsByCharacter =
+        private readonly Dictionary<string, Dictionary<string, string>> decisionsByCharacter =
             new Dictionary<string, Dictionary<string, string>>();
 
         public bool TryGetOption(string characterId, string decisionKey, out string optionId)
         {
             optionId = string.Empty;
 
-            if (!DecisionsByCharacter.TryGetValue(characterId, out var characterDecisions))
+            if (!decisionsByCharacter.TryGetValue(characterId, out var characterDecisions))
             {
                 return false;
             }
@@ -109,10 +141,10 @@ namespace Weave.Runtime
 
         public void SetOption(string characterId, string decisionKey, string optionId)
         {
-            if (!DecisionsByCharacter.TryGetValue(characterId, out var characterDecisions))
+            if (!decisionsByCharacter.TryGetValue(characterId, out var characterDecisions))
             {
                 characterDecisions = new Dictionary<string, string>();
-                DecisionsByCharacter[characterId] = characterDecisions;
+                decisionsByCharacter[characterId] = characterDecisions;
             }
 
             characterDecisions[decisionKey] = optionId;
@@ -124,6 +156,7 @@ namespace Weave.Runtime
     {
         public string ControlledCharacterId;
         public CalendarState Calendar;
+        public DayTimerState DayTimer;
         public Dictionary<string, CharacterState> Characters = new Dictionary<string, CharacterState>();
         public Dictionary<string, LocationState> Locations = new Dictionary<string, LocationState>();
         public HashSet<string> WorldFlags = new HashSet<string>();
