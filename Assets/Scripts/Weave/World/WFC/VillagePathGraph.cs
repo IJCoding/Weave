@@ -179,6 +179,20 @@ namespace Weave.World.WFC
                 return true;
             }
 
+            var requiredTypeSet = new HashSet<VillageLocationType>();
+            foreach (var requiredType in requiredTypes)
+            {
+                if (requiredType != VillageLocationType.None)
+                {
+                    requiredTypeSet.Add(requiredType);
+                }
+            }
+
+            if (requiredTypeSet.Count == 0)
+            {
+                return true;
+            }
+
             var requiredPositions = new List<Vector3Int>();
             var encounteredTypes = new HashSet<VillageLocationType>();
 
@@ -186,20 +200,15 @@ namespace Weave.World.WFC
             {
                 foreach (var destination in allDestinations)
                 {
-                    if (requiredTypes.Contains(destination.LocationType) && encounteredTypes.Add(destination.LocationType))
+                    if (requiredTypeSet.Contains(destination.LocationType) && encounteredTypes.Add(destination.LocationType))
                     {
                         requiredPositions.Add(destination.GridPosition);
                     }
                 }
             }
 
-            foreach (var requiredType in requiredTypes)
+            foreach (var requiredType in requiredTypeSet)
             {
-                if (requiredType == VillageLocationType.None)
-                {
-                    continue;
-                }
-
                 if (!encounteredTypes.Contains(requiredType))
                 {
                     return false;

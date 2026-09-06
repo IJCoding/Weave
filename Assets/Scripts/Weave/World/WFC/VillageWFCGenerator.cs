@@ -91,7 +91,8 @@ namespace Weave.World.WFC
 
             for (var attempt = 0; attempt < maxRetries; attempt++)
             {
-                var attemptSeed = currentSeed + attempt;
+                var wrappedSeed = (((long)currentSeed - int.MinValue) + attempt) & 0xFFFFFFFFL;
+                var attemptSeed = (int)(wrappedSeed + int.MinValue);
                 var random = new System.Random(attemptSeed);
 
                 if (TryGenerateMap(tileDefinitions, random, out var grid, out var destinations, out var connectedCount, out var allConnected, out var failureReason))
