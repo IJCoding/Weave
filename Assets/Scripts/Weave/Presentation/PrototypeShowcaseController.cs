@@ -25,6 +25,12 @@ namespace Weave.Presentation
         private const string SuppliesSharedFlag = "supplies_shared";
         private static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
         private const float TargetAspectRatio = 16f / 9f;
+        private const float MapPadding = 54f;
+
+        private static readonly Color TravelPhaseColor = new Color(0.24f, 0.82f, 0.36f, 1f);
+        private static readonly Color WorkPhaseColor = new Color(0.87f, 0.23f, 0.23f, 1f);
+        private static readonly Color ReturnPhaseColor = new Color(0.24f, 0.52f, 0.94f, 1f);
+        private static readonly Color DepositPhaseColor = new Color(0.94f, 0.84f, 0.22f, 1f);
 
         private sealed class ShowcaseScenario
         {
@@ -48,12 +54,16 @@ namespace Weave.Presentation
         {
             public TaskDefinition Task;
             public Button Button;
-            public Image Fill;
+            public RectTransform PhaseContainer;
+            public List<Image> PhaseBackgrounds = new List<Image>();
+            public List<Image> PhaseFills = new List<Image>();
             public Text Label;
         }
 
-        private readonly Dictionary<string, SpriteRenderer> characterMarkers = new Dictionary<string, SpriteRenderer>();
-        private readonly Dictionary<string, LineRenderer> workRings = new Dictionary<string, LineRenderer>();
+        private readonly Dictionary<string, RectTransform> mapLocationNodes = new Dictionary<string, RectTransform>();
+        private readonly Dictionary<string, RectTransform> characterMarkers = new Dictionary<string, RectTransform>();
+        private readonly Dictionary<string, Image> workRings = new Dictionary<string, Image>();
+        private readonly Dictionary<string, Text> locationCoordinateTexts = new Dictionary<string, Text>();
         private readonly List<UnityEngine.Object> runtimeDefinitions = new List<UnityEngine.Object>();
         private readonly List<TaskButtonView> taskButtons = new List<TaskButtonView>();
 
@@ -77,6 +87,8 @@ namespace Weave.Presentation
 
         private Canvas runtimeCanvas;
         private RectTransform compositionRoot;
+        private RectTransform mapViewport;
+        private RectTransform mapContent;
         private Text dayText;
         private Text timeRemainingText;
         private Text controlledCharacterText;
@@ -87,6 +99,7 @@ namespace Weave.Presentation
         private Text currentTaskText;
         private Text taskStateText;
         private Text taskTimeText;
+        private Text overallProgressLabelText;
         private Text statusText;
         private RectTransform taskButtonContainer;
         private Image taskProgressFill;
@@ -122,6 +135,7 @@ namespace Weave.Presentation
             ConfigureCamera();
             BuildRuntimeVisuals();
             BuildRuntimeUi();
+            BuildMapUi();
             session.StateChanged += RefreshPresentation;
             session.SimulationAdvanced += HandleSimulationAdvanced;
             session.StartRun(controlledCharacter);
@@ -154,55 +168,11 @@ namespace Weave.Presentation
             squareSprite = CreateSquareSprite();
             circleSprite = CreateCircleSprite(32);
             runtimeVisualRoot = new GameObject("Prototype Showcase Runtime Visuals");
+            runtimeVisualRoot.SetActive(false);
+            mapLocationNodes.Clear();
+            locationCoordinateTexts.Clear();
             characterMarkers.Clear();
             workRings.Clear();
-
-            foreach (var location in locations)
-            {
-                var locationObject = new GameObject($"Location - {location.DisplayName}");
-                locationObject.transform.SetParent(runtimeVisualRoot.transform, false);
-                locationObject.transform.position = new Vector3(location.MapPosition.x, location.MapPosition.y, 0f);
-
-                var renderer = locationObject.AddComponent<SpriteRenderer>();
-                renderer.sprite = squareSprite;
-                renderer.color = GetLocationColor(location.LocationType);
-                renderer.sortingOrder = 0;
-                locationObject.transform.localScale = new Vector3(1.15f, 0.75f, 1f);
-
-                CreateTextLabel(
-                    locationObject.transform,
-                    $"{location.DisplayName}\n({location.MapPosition.x:0.#}, {location.MapPosition.y:0.#})",
-                    new Vector3(0f, 0.95f, 0f),
-                    0.18f,
-                    Color.white);
-            }
-
-            foreach (var character in characters)
-            {
-                var characterObject = new GameObject($"Character - {character.DisplayName}");
-                characterObject.transform.SetParent(runtimeVisualRoot.transform, false);
-
-                var renderer = characterObject.AddComponent<SpriteRenderer>();
-                renderer.sprite = circleSprite;
-                renderer.color = character.MapColor;
-                renderer.sortingOrder = 2;
-                characterObject.transform.localScale = new Vector3(0.38f, 0.38f, 1f);
-
-                var ring = characterObject.AddComponent<LineRenderer>();
-                ring.positionCount = 0;
-                ring.loop = false;
-                ring.useWorldSpace = true;
-                ring.widthMultiplier = 0.06f;
-                ring.material = Track(new Material(Shader.Find("Sprites/Default")));
-                ring.startColor = new Color(0.98f, 0.92f, 0.60f, 1f);
-                ring.endColor = ring.startColor;
-                ring.sortingOrder = 3;
-                ring.enabled = false;
-
-                CreateTextLabel(characterObject.transform, character.DisplayName, new Vector3(0f, -0.55f, 0f), 0.16f, character.MapColor);
-                characterMarkers[character.CharacterId] = renderer;
-                workRings[character.CharacterId] = ring;
-            }
         }
 
         private void BuildRuntimeUi()
@@ -247,14 +217,21 @@ namespace Weave.Presentation
                 new Color(0.08f, 0.10f, 0.13f, 0.94f));
             frame.gameObject.AddComponent<Outline>().effectColor = new Color(0.38f, 0.43f, 0.50f, 0.9f);
 
-            CreatePanel(
+            mapViewport = CreatePanel(
                 "Map Frame",
                 frame,
                 new Vector2(0f, 0f),
                 new Vector2(1f, 1f),
                 new Vector2(108f, 168f),
                 new Vector2(-108f, -254f),
-                new Color(0.02f, 0.03f, 0.04f, 0.08f));
+                new Color(0.05f, 0.07f, 0.10f, 0.85f));
+            mapViewport.gameObject.AddComponent<Mask>().showMaskGraphic = true;
+
+            mapContent = CreateRect("Map Content", mapViewport);
+            mapContent.anchorMin = Vector2.zero;
+            mapContent.anchorMax = Vector2.one;
+            mapContent.offsetMin = Vector2.zero;
+            mapContent.offsetMax = Vector2.zero;
 
             CreateText(
                 "Map Title",
@@ -480,25 +457,21 @@ namespace Weave.Presentation
             {
                 var capturedTask = task;
                 var buttonView = CreateButton(taskButtonContainer, task.DisplayName, task.DisplayName, () => AssignTask(capturedTask));
-                var fill = CreatePanel(
-                    $"{task.DisplayName} Travel Fill",
+                var phaseContainer = CreatePanel(
+                    $"{task.DisplayName} Phase Bar",
                     buttonView.Button.transform,
                     new Vector2(0f, 0f),
-                    new Vector2(0f, 1f),
-                    Vector2.zero,
-                    Vector2.zero,
-                    new Color(0.35f, 0.74f, 0.48f, 0.35f))
-                    .GetComponent<Image>();
-                fill.raycastTarget = false;
-                var fillLayout = fill.gameObject.AddComponent<LayoutElement>();
-                fillLayout.ignoreLayout = true;
-                fill.rectTransform.SetAsFirstSibling();
-                fill.gameObject.SetActive(false);
+                    new Vector2(1f, 0f),
+                    new Vector2(10f, 6f),
+                    new Vector2(-10f, 16f),
+                    new Color(0.09f, 0.11f, 0.14f, 1f));
+                phaseContainer.GetComponent<Image>().raycastTarget = false;
+                phaseContainer.SetAsFirstSibling();
                 taskButtons.Add(new TaskButtonView
                 {
                     Task = capturedTask,
                     Button = buttonView.Button,
-                    Fill = fill,
+                    PhaseContainer = phaseContainer,
                     Label = buttonView.Label
                 });
             }
@@ -551,13 +524,26 @@ namespace Weave.Presentation
                 TextAnchor.MiddleLeft,
                 new Color(0.83f, 0.88f, 0.94f, 1f));
 
+            overallProgressLabelText = CreateText(
+                "Overall Progress Label",
+                activeTaskPanel,
+                new Vector2(0f, 0.5f),
+                new Vector2(1f, 0.5f),
+                new Vector2(16f, 26f),
+                new Vector2(-16f, 56f),
+                "Overall Progress",
+                17,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                new Color(0.83f, 0.88f, 0.94f, 1f));
+
             var progressBackground = CreatePanel(
                 "Task Progress Background",
                 activeTaskPanel,
                 new Vector2(0f, 0.5f),
                 new Vector2(1f, 0.5f),
-                new Vector2(16f, -10f),
-                new Vector2(-16f, 24f),
+                new Vector2(16f, -4f),
+                new Vector2(-16f, 22f),
                 new Color(0.20f, 0.24f, 0.29f, 1f));
             taskProgressFill = CreatePanel(
                 "Task Progress Fill",
@@ -574,8 +560,8 @@ namespace Weave.Presentation
                 activeTaskPanel,
                 new Vector2(0f, 0.5f),
                 new Vector2(1f, 0.5f),
-                new Vector2(16f, -54f),
-                new Vector2(-16f, -18f),
+                new Vector2(16f, -46f),
+                new Vector2(-16f, -10f),
                 string.Empty,
                 18,
                 FontStyle.Normal,
@@ -673,6 +659,109 @@ namespace Weave.Presentation
             popupChoiceContainer.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
         }
 
+        private void BuildMapUi()
+        {
+            mapLocationNodes.Clear();
+            locationCoordinateTexts.Clear();
+            characterMarkers.Clear();
+            workRings.Clear();
+
+            if (mapContent == null)
+            {
+                return;
+            }
+
+            foreach (var location in locations)
+            {
+                var locationRect = CreatePanel(
+                    $"Map Location - {location.DisplayName}",
+                    mapContent,
+                    new Vector2(0.5f, 0.5f),
+                    new Vector2(0.5f, 0.5f),
+                    new Vector2(-40f, -24f),
+                    new Vector2(40f, 24f),
+                    GetLocationColor(location.LocationType));
+                locationRect.localScale = Vector3.one;
+                mapLocationNodes[location.LocationId] = locationRect;
+
+                var nameText = CreateText(
+                    $"{location.DisplayName} Name",
+                    locationRect,
+                    new Vector2(0.5f, 1f),
+                    new Vector2(0.5f, 1f),
+                    new Vector2(-120f, 10f),
+                    new Vector2(120f, 44f),
+                    location.DisplayName.ToUpperInvariant(),
+                    16,
+                    FontStyle.Bold,
+                    TextAnchor.MiddleCenter,
+                    Color.white);
+                nameText.raycastTarget = false;
+
+                var coordinateText = CreateText(
+                    $"{location.DisplayName} Coords",
+                    locationRect,
+                    new Vector2(0.5f, 0f),
+                    new Vector2(0.5f, 0f),
+                    new Vector2(-120f, -40f),
+                    new Vector2(120f, -12f),
+                    $"({location.MapPosition.x:0.#}, {location.MapPosition.y:0.#})",
+                    14,
+                    FontStyle.Normal,
+                    TextAnchor.MiddleCenter,
+                    new Color(0.87f, 0.91f, 0.96f, 1f));
+                coordinateText.raycastTarget = false;
+                locationCoordinateTexts[location.LocationId] = coordinateText;
+            }
+
+            foreach (var character in characters)
+            {
+                var markerRect = CreateRect($"Character - {character.DisplayName}", mapContent);
+                markerRect.anchorMin = new Vector2(0.5f, 0.5f);
+                markerRect.anchorMax = new Vector2(0.5f, 0.5f);
+                markerRect.sizeDelta = new Vector2(24f, 24f);
+
+                var markerImage = markerRect.gameObject.AddComponent<Image>();
+                markerImage.sprite = circleSprite;
+                markerImage.color = character.MapColor;
+                markerImage.raycastTarget = false;
+
+                var ringRect = CreateRect("Work Ring", markerRect);
+                ringRect.anchorMin = new Vector2(0.5f, 0.5f);
+                ringRect.anchorMax = new Vector2(0.5f, 0.5f);
+                ringRect.sizeDelta = new Vector2(34f, 34f);
+                ringRect.anchoredPosition = Vector2.zero;
+                var ringImage = ringRect.gameObject.AddComponent<Image>();
+                ringImage.sprite = circleSprite;
+                ringImage.type = Image.Type.Filled;
+                ringImage.fillMethod = Image.FillMethod.Radial360;
+                ringImage.fillOrigin = (int)Image.Origin360.Top;
+                ringImage.fillClockwise = false;
+                ringImage.fillAmount = 0f;
+                ringImage.color = WorkPhaseColor;
+                ringImage.raycastTarget = false;
+                ringImage.gameObject.SetActive(false);
+
+                CreateText(
+                    $"{character.DisplayName} Label",
+                    markerRect,
+                    new Vector2(0.5f, 0f),
+                    new Vector2(0.5f, 0f),
+                    new Vector2(-120f, -34f),
+                    new Vector2(120f, -8f),
+                    character.DisplayName,
+                    13,
+                    FontStyle.Bold,
+                    TextAnchor.MiddleCenter,
+                    character.MapColor).raycastTarget = false;
+
+                characterMarkers[character.CharacterId] = markerRect;
+                workRings[character.CharacterId] = ringImage;
+            }
+
+            RefreshMapLayout();
+        }
+
         private void RefreshPresentation()
         {
             if (session == null ||
@@ -686,31 +775,34 @@ namespace Weave.Presentation
             }
 
             var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+            var actionProgress = session.GetActionProgressForCharacter(controlledCharacter.CharacterId);
             controlledCharacterText.text = $"{controlledCharacter.DisplayName} ({controlledCharacter.Profession})";
-            currentLocationText.text = $"Current Location: {GetLocationDisplayName(controlledState.CurrentLocationId)}";
+            currentLocationText.text = GetCurrentLocationText(controlledState);
             resourcesText.text = $"Stored: {FormatResources(controlledState.StoredResources)}";
             carryingText.text = $"Carrying: {FormatResources(controlledState.CarriedResources)}\nCarry Weight: {session.GetCharacterCarriedWeight(controlledCharacter.CharacterId):0.##}";
             worldFlagsText.text = $"World Flags: {FormatWorldFlags()}";
             dayText.text = $"{GetCurrentSeasonName()} — Day {session.RunState.Calendar.DayOfSeason}";
             timeRemainingText.text = $"{FormatDuration(session.RunState.DayTimer.RemainingSeconds)} Remaining";
             currentTaskText.text = GetTaskDisplayName(controlledState.CurrentTaskId);
-            taskStateText.text = GetTaskStateText(controlledState);
-            taskTimeText.text = GetTaskTimeText(controlledState);
+            taskStateText.text = GetTaskStateText(controlledState, actionProgress);
+            taskTimeText.text = GetTaskTimeText(controlledState, actionProgress);
             statusText.text = statusMessage;
+            overallProgressLabelText.text = "Overall Progress";
 
-            var progress = controlledState.IsWorkingOnTask && controlledState.TaskDurationSeconds > 0f
-                ? Mathf.Clamp01(controlledState.TaskElapsedSeconds / controlledState.TaskDurationSeconds)
-                : controlledState.IsTravelling ? Mathf.Clamp01(controlledState.TravelProgress) : 0f;
+            var progress = actionProgress.HasPhases ? actionProgress.OverallProgress : 0f;
+            taskProgressFill.color = actionProgress.HasPhases
+                ? GetPhaseColor(actionProgress.CurrentPhase.PhaseType)
+                : new Color(0.35f, 0.74f, 0.48f, 1f);
             taskProgressFill.rectTransform.anchorMax = new Vector2(progress, 1f);
             taskProgressFill.rectTransform.offsetMin = Vector2.zero;
             taskProgressFill.rectTransform.offsetMax = Vector2.zero;
             taskProgressFill.gameObject.SetActive(progress > 0f);
 
-            RefreshTaskButtons(controlledState);
+            RefreshTaskButtons(controlledState, actionProgress);
             RefreshSpeedButtons();
         }
 
-        private void RefreshTaskButtons(CharacterState controlledState)
+        private void RefreshTaskButtons(CharacterState controlledState, ActionProgressSummary activeActionProgress)
         {
             var availableTaskIds = new HashSet<string>();
 
@@ -726,21 +818,18 @@ namespace Weave.Presentation
             {
                 var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !controlledState.HasActiveTask;
                 taskButton.Button.interactable = available;
-                var selectedTaskTravelling = controlledState.IsTravelling &&
-                    controlledState.CurrentTaskId == taskButton.Task.TaskId;
                 var travelOrPrep = GetTravelHintForTask(controlledState, taskButton.Task);
                 var suffix = controlledState.HasActiveTask
                     ? controlledState.CurrentTaskId == taskButton.Task.TaskId
-                        ? $" • {GetTaskStateText(controlledState)}"
+                        ? $" • {GetTaskStateText(controlledState, activeActionProgress)}"
                         : " • Busy"
                     : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " • Unavailable";
                 taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s) [{travelOrPrep}]{suffix}";
-
-                var fillProgress = selectedTaskTravelling ? Mathf.Clamp01(controlledState.TravelProgress) : 0f;
-                taskButton.Fill.rectTransform.anchorMax = new Vector2(fillProgress, 1f);
-                taskButton.Fill.rectTransform.offsetMin = Vector2.zero;
-                taskButton.Fill.rectTransform.offsetMax = Vector2.zero;
-                taskButton.Fill.gameObject.SetActive(fillProgress > 0f);
+                var isSelectedTask = controlledState.HasActiveTask && controlledState.CurrentTaskId == taskButton.Task.TaskId;
+                var progress = isSelectedTask
+                    ? activeActionProgress
+                    : session.GetTaskPlanPreview(controlledCharacter.CharacterId, taskButton.Task);
+                RefreshTaskPhaseBar(taskButton, progress, isSelectedTask);
             }
         }
 
@@ -749,6 +838,78 @@ namespace Weave.Presentation
             RefreshSpeedButton(pauseButtonImage, session.SelectedSpeedMode == SimulationSpeedMode.Paused, session.EffectiveSpeedMode == SimulationSpeedMode.Paused);
             RefreshSpeedButton(playButtonImage, session.SelectedSpeedMode == SimulationSpeedMode.Normal, session.EffectiveSpeedMode == SimulationSpeedMode.Normal);
             RefreshSpeedButton(fastForwardButtonImage, session.SelectedSpeedMode == SimulationSpeedMode.FastForward, session.EffectiveSpeedMode == SimulationSpeedMode.FastForward);
+        }
+
+        private void RefreshTaskPhaseBar(TaskButtonView taskButton, ActionProgressSummary progress, bool showProgress)
+        {
+            if (taskButton.PhaseContainer == null)
+            {
+                return;
+            }
+
+            var phaseCount = progress.HasPhases ? progress.Phases.Count : 0;
+            EnsureTaskPhaseVisuals(taskButton, phaseCount);
+
+            if (phaseCount == 0 || progress.TotalDurationSeconds <= Mathf.Epsilon)
+            {
+                taskButton.PhaseContainer.gameObject.SetActive(false);
+                return;
+            }
+
+            taskButton.PhaseContainer.gameObject.SetActive(true);
+            var start = 0f;
+
+            for (var index = 0; index < phaseCount; index++)
+            {
+                var phase = progress.Phases[index];
+                var widthRatio = Mathf.Clamp01(phase.DurationSeconds / progress.TotalDurationSeconds);
+                var end = index == phaseCount - 1 ? 1f : Mathf.Clamp01(start + widthRatio);
+                var background = taskButton.PhaseBackgrounds[index];
+                var fill = taskButton.PhaseFills[index];
+                var phaseColor = GetPhaseColor(phase.PhaseType);
+
+                background.color = new Color(phaseColor.r, phaseColor.g, phaseColor.b, 0.25f);
+                SetAnchoredHorizontal(background.rectTransform, start, end);
+                SetAnchoredHorizontal(fill.rectTransform, 0f, showProgress ? phase.Progress : 0f);
+                fill.color = phaseColor;
+
+                start = end;
+            }
+        }
+
+        private void EnsureTaskPhaseVisuals(TaskButtonView taskButton, int phaseCount)
+        {
+            while (taskButton.PhaseBackgrounds.Count < phaseCount)
+            {
+                var index = taskButton.PhaseBackgrounds.Count;
+                var phaseRect = CreatePanel(
+                    $"Phase {index + 1} Background",
+                    taskButton.PhaseContainer,
+                    new Vector2(0f, 0f),
+                    new Vector2(0f, 1f),
+                    Vector2.zero,
+                    Vector2.zero,
+                    new Color(1f, 1f, 1f, 0.25f));
+                phaseRect.GetComponent<Image>().raycastTarget = false;
+                var fillRect = CreatePanel(
+                    $"Phase {index + 1} Fill",
+                    phaseRect,
+                    new Vector2(0f, 0f),
+                    new Vector2(0f, 1f),
+                    Vector2.zero,
+                    Vector2.zero,
+                    Color.white);
+                fillRect.GetComponent<Image>().raycastTarget = false;
+                taskButton.PhaseBackgrounds.Add(phaseRect.GetComponent<Image>());
+                taskButton.PhaseFills.Add(fillRect.GetComponent<Image>());
+            }
+
+            for (var index = 0; index < taskButton.PhaseBackgrounds.Count; index++)
+            {
+                var active = index < phaseCount;
+                taskButton.PhaseBackgrounds[index].gameObject.SetActive(active);
+                taskButton.PhaseFills[index].gameObject.SetActive(active);
+            }
         }
 
         private void RefreshSpeedButton(Image buttonImage, bool selected, bool active)
@@ -809,9 +970,16 @@ namespace Weave.Presentation
             }
 
             var travelSeconds = session.GetEstimatedTravelDuration(task);
-            statusMessage = wasAlreadyAtRequiredLocation
-                ? $"{controlledCharacter.DisplayName} is preparing for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s)."
-                : $"{controlledCharacter.DisplayName} is travelling to {task.RequiredLocation.DisplayName} for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s).";
+            var carryWeight = session.GetCharacterCarriedWeight(controlledCharacter.CharacterId);
+            var isReturnTask = task.CompleteOnArrival &&
+                task.RequiredLocation != null &&
+                task.RequiredLocation.LocationId == preAssignState.HomeLocationId &&
+                preAssignState.CurrentLocationId != preAssignState.HomeLocationId;
+            statusMessage = isReturnTask
+                ? $"{controlledCharacter.DisplayName} is returning home ({Mathf.CeilToInt(travelSeconds)}s). Carrying {carryWeight:0.##} weight."
+                : wasAlreadyAtRequiredLocation
+                    ? $"{controlledCharacter.DisplayName} is preparing for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s)."
+                    : $"{controlledCharacter.DisplayName} is travelling to {task.RequiredLocation.DisplayName} for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s).";
             RefreshPresentation();
         }
 
@@ -899,6 +1067,8 @@ namespace Weave.Presentation
                 return;
             }
 
+            RefreshMapLayout();
+
             foreach (var character in characters)
             {
                 if (!characterMarkers.TryGetValue(character.CharacterId, out var marker))
@@ -907,9 +1077,58 @@ namespace Weave.Presentation
                 }
 
                 var position = session.GetCharacterMapPosition(character.CharacterId);
-                marker.transform.position = new Vector3(position.x, position.y, -0.1f);
-                UpdateWorkRing(character.CharacterId, marker.transform.position);
+                marker.anchoredPosition = GetMapAnchoredPosition(position);
+                UpdateWorkRing(character.CharacterId);
             }
+        }
+
+        private void RefreshMapLayout()
+        {
+            if (mapViewport == null || mapContent == null)
+            {
+                return;
+            }
+
+            foreach (var location in locations)
+            {
+                if (!mapLocationNodes.TryGetValue(location.LocationId, out var node))
+                {
+                    continue;
+                }
+
+                node.anchoredPosition = GetMapAnchoredPosition(location.MapPosition);
+            }
+        }
+
+        private Vector2 GetMapAnchoredPosition(Vector2 logicalPosition)
+        {
+            if (mapViewport == null)
+            {
+                return Vector2.zero;
+            }
+
+            var extents = GetLogicalMapExtents();
+            var halfWidth = Mathf.Max(16f, mapViewport.rect.width * 0.5f - MapPadding);
+            var halfHeight = Mathf.Max(16f, mapViewport.rect.height * 0.5f - MapPadding);
+            var normalizedX = logicalPosition.x / extents.x;
+            var normalizedY = logicalPosition.y / extents.y;
+            return new Vector2(
+                Mathf.Clamp(normalizedX, -1f, 1f) * halfWidth,
+                Mathf.Clamp(normalizedY, -1f, 1f) * halfHeight);
+        }
+
+        private Vector2 GetLogicalMapExtents()
+        {
+            var maxX = 1f;
+            var maxY = 1f;
+
+            foreach (var location in locations)
+            {
+                maxX = Mathf.Max(maxX, Mathf.Abs(location.MapPosition.x));
+                maxY = Mathf.Max(maxY, Mathf.Abs(location.MapPosition.y));
+            }
+
+            return new Vector2(maxX, maxY);
         }
 
         private void ApplyFixedAspect()
@@ -1322,39 +1541,39 @@ namespace Weave.Presentation
             return taskId;
         }
 
-        private static string GetTaskStateText(CharacterState characterState)
+        private string GetCurrentLocationText(CharacterState characterState)
         {
-            if (characterState.IsWorkingOnTask)
+            var current = $"Current Location: {GetLocationDisplayName(characterState.CurrentLocationId)}";
+
+            if (!characterState.IsTravelling)
             {
-                return "Working";
+                return current;
             }
 
-            if (characterState.IsTravelling)
+            var origin = GetLocationDisplayName(characterState.TravelOriginLocationId);
+            var destination = GetLocationDisplayName(characterState.TravelDestinationLocationId);
+            return $"{current}\nTravelling: {origin} -> {destination}";
+        }
+
+        private string GetTaskStateText(CharacterState characterState, ActionProgressSummary actionProgress)
+        {
+            if (actionProgress.HasPhases && actionProgress.CurrentPhaseIndex >= 0)
             {
-                return characterState.TravelOriginLocationId == characterState.TravelDestinationLocationId
-                    ? "Preparing"
-                    : "Travelling";
+                return $"Current Phase: {actionProgress.CurrentPhase.Label}";
             }
 
             return "Idle";
         }
 
-        private string GetTaskTimeText(CharacterState characterState)
+        private string GetTaskTimeText(CharacterState characterState, ActionProgressSummary actionProgress)
         {
-            if (characterState.IsWorkingOnTask)
+            if (actionProgress.HasPhases)
             {
-                var remaining = Mathf.Max(0f, characterState.TaskDurationSeconds - characterState.TaskElapsedSeconds);
-                return $"{Mathf.CeilToInt(remaining)}s remaining";
-            }
-
-            if (characterState.IsTravelling)
-            {
-                var destination = GetLocationDisplayName(characterState.TravelDestinationLocationId);
-                var remaining = Mathf.CeilToInt(
-                    Mathf.Max(0f, (1f - characterState.TravelProgress) * characterState.TravelDurationSeconds));
-                return characterState.TravelOriginLocationId == characterState.TravelDestinationLocationId
-                    ? $"Preparing ({remaining}s remaining)"
-                    : $"En route to {destination} ({remaining}s)";
+                var elapsed = Mathf.CeilToInt(actionProgress.CompletedDurationSeconds);
+                var total = Mathf.CeilToInt(actionProgress.TotalDurationSeconds);
+                var percent = Mathf.RoundToInt(actionProgress.OverallProgress * 100f);
+                return
+                    $"Overall: {elapsed}/{total}s ({percent}%)\n{Mathf.CeilToInt(actionProgress.CurrentPhaseRemainingSeconds)}s remaining in current phase";
             }
 
             return "No active assignment";
@@ -1368,13 +1587,23 @@ namespace Weave.Presentation
             }
 
             var travelSeconds = Mathf.CeilToInt(session.GetEstimatedTravelDuration(task));
+            var isReturnTask = task.CompleteOnArrival &&
+                task.RequiredLocation.LocationId == controlledState.HomeLocationId &&
+                controlledState.CurrentLocationId != controlledState.HomeLocationId;
+
+            if (isReturnTask)
+            {
+                var carryWeight = session.GetCharacterCarriedWeight(controlledCharacter.CharacterId);
+                return $"{travelSeconds}s return / {carryWeight:0.#} wt";
+            }
+
             var sameLocation = controlledState.CurrentLocationId == task.RequiredLocation.LocationId;
             return sameLocation
                 ? $"Here / {travelSeconds}s prep"
                 : $"{travelSeconds}s travel";
         }
 
-        private void UpdateWorkRing(string characterId, Vector3 center)
+        private void UpdateWorkRing(string characterId)
         {
             if (!workRings.TryGetValue(characterId, out var ring) || session?.RunState == null)
             {
@@ -1385,30 +1614,14 @@ namespace Weave.Presentation
 
             if (!characterState.IsWorkingOnTask || characterState.TaskDurationSeconds <= 0f)
             {
-                ring.enabled = false;
-                ring.positionCount = 0;
+                ring.gameObject.SetActive(false);
                 return;
             }
 
             var progress = Mathf.Clamp01(characterState.TaskElapsedSeconds / characterState.TaskDurationSeconds);
-            var segments = Mathf.Max(3, Mathf.CeilToInt(48f * progress));
-            ring.positionCount = segments + 1;
-            ring.enabled = true;
-
-            const float radius = 0.33f;
-            const float startAngle = 90f;
-            var sweep = 360f * progress;
-
-            for (var index = 0; index <= segments; index++)
-            {
-                var t = segments == 0 ? 0f : (float)index / segments;
-                var angleRadians = (startAngle - sweep * t) * Mathf.Deg2Rad;
-                var point = new Vector3(
-                    center.x + Mathf.Cos(angleRadians) * radius,
-                    center.y + Mathf.Sin(angleRadians) * radius,
-                    center.z - 0.01f);
-                ring.SetPosition(index, point);
-            }
+            ring.fillAmount = progress;
+            ring.color = WorkPhaseColor;
+            ring.gameObject.SetActive(true);
         }
 
         private string GetEventTitle(EventDefinition eventDefinition)
@@ -1480,6 +1693,31 @@ namespace Weave.Presentation
             }
 
             return first ? "None" : builder.ToString();
+        }
+
+        private static void SetAnchoredHorizontal(RectTransform rectTransform, float minX, float maxX)
+        {
+            rectTransform.anchorMin = new Vector2(minX, 0f);
+            rectTransform.anchorMax = new Vector2(maxX, 1f);
+            rectTransform.offsetMin = Vector2.zero;
+            rectTransform.offsetMax = Vector2.zero;
+        }
+
+        private static Color GetPhaseColor(ActionPhaseType phaseType)
+        {
+            switch (phaseType)
+            {
+                case ActionPhaseType.TravelPreparation:
+                    return TravelPhaseColor;
+                case ActionPhaseType.Work:
+                    return WorkPhaseColor;
+                case ActionPhaseType.ReturnTravel:
+                    return ReturnPhaseColor;
+                case ActionPhaseType.Deposit:
+                    return DepositPhaseColor;
+                default:
+                    return Color.white;
+            }
         }
 
         private static string FormatDuration(float totalSeconds)
