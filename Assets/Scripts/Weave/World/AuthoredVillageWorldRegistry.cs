@@ -437,8 +437,14 @@ namespace Weave.World
             var seen = new Dictionary<string, AuthoredVillageLocation>();
             foreach (var location in locations)
             {
-                if (location == null || string.IsNullOrWhiteSpace(location.LocationId))
+                if (location == null)
                 {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(location.LocationId))
+                {
+                    Debug.LogError($"Location '{location.name}' is missing a Location ID.", location);
                     continue;
                 }
 
@@ -457,8 +463,14 @@ namespace Weave.World
             var seen = new Dictionary<string, AuthoredVillageNpc>();
             foreach (var npc in npcs)
             {
-                if (npc == null || string.IsNullOrWhiteSpace(npc.CharacterId))
+                if (npc == null)
                 {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(npc.CharacterId))
+                {
+                    Debug.LogError($"NPC '{npc.name}' is missing a Character ID via CharacterDefinition.", npc);
                     continue;
                 }
 

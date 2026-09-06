@@ -99,6 +99,7 @@ namespace Weave.Simulation
         private readonly List<SimulationLogEntry> simulationLogEntries = new List<SimulationLogEntry>();
         private readonly Dictionary<string, TaskDefinition> generatedTasks = new Dictionary<string, TaskDefinition>();
         private RunState runState;
+        private bool isRunInitialized;
         private SimulationSpeedMode selectedSpeedMode = SimulationSpeedMode.Normal;
         private int pauseOverrideDepth;
 
@@ -118,6 +119,7 @@ namespace Weave.Simulation
         public SimulationSpeedMode EffectiveSpeedMode => pauseOverrideDepth > 0 ? SimulationSpeedMode.Paused : selectedSpeedMode;
         public IReadOnlyList<SimulationLogEntry> SimulationLogEntries => simulationLogEntries;
         public AuthoredVillageWorldRegistry AuthoredWorld => authoredWorld;
+        public bool IsRunInitialized => isRunInitialized;
 
         public void SetAuthoredWorld(AuthoredVillageWorldRegistry world)
         {
@@ -141,8 +143,10 @@ namespace Weave.Simulation
 
         public void StartRun(CharacterDefinition controlledCharacter)
         {
+            isRunInitialized = false;
             runState = simulation.CreateInitialState(calendarDefinition, locations, characters, controlledCharacter);
             authoredWorld?.ApplyInitialCharacterPlacements(runState, controlledCharacter);
+            ValidateStartupState(controlledCharacter);
             generatedTasks.Clear();
             simulationLogEntries.Clear();
             pauseOverrideDepth = 0;
@@ -151,6 +155,7 @@ namespace Weave.Simulation
                 SimulationLogCategory.System,
                 controlledCharacter != null ? controlledCharacter.CharacterId : string.Empty,
                 $"Day {runState.Calendar.DayOfSeason} began.");
+            isRunInitialized = true;
             NotifyStateChanged();
         }
 
@@ -786,6 +791,52 @@ namespace Weave.Simulation
         private void NotifyStateChanged()
         {
             StateChanged?.Invoke();
+        }
+
+        private void ValidateStartupState(CharacterDefinition controlledCharacter)
+        {
+            if (controlledCharacter == null)
+            {
+                throw new InvalidOperationException("Cannot start run without a controlled character definition.");
+            }
+
+            if (runState == null)
+            {
+                throw new InvalidOperationException("Cannot start run because RunState was not created.");
+            }
+
+            if (string.IsNullOrWhiteSpace(runState.ControlledCharacterId))
+            {
+                throw new InvalidOperationException("Cannot start run because ControlledCharacterId is empty.");
+            }
+
+            var controlledState = runState.GetCharacter(runState.ControlledCharacterId);
+            if (controlledState == null)
+            {
+                throw new InvalidOperationException($"Controlled character '{runState.ControlledCharacterId}' is not registered in RunState.");
+            }
+
+            if (string.IsNullOrWhiteSpace(controlledState.HomeLocationId))
+            {
+                throw new InvalidOperationException($"Controlled character '{runState.ControlledCharacterId}' is missing a Home location ID.");
+            }
+
+            if (!runState.Locations.ContainsKey(controlledState.HomeLocationId))
+            {
+                throw new InvalidOperationException(
+                    $"Controlled character '{runState.ControlledCharacterId}' home location '{controlledState.HomeLocationId}' was not found in authored runtime locations.");
+            }
+
+            if (string.IsNullOrWhiteSpace(controlledState.CurrentLocationId))
+            {
+                throw new InvalidOperationException($"Controlled character '{runState.ControlledCharacterId}' has an empty starting location ID.");
+            }
+
+            if (!runState.Locations.ContainsKey(controlledState.CurrentLocationId))
+            {
+                throw new InvalidOperationException(
+                    $"Controlled character '{runState.ControlledCharacterId}' starting location '{controlledState.CurrentLocationId}' was not found in authored runtime locations.");
+            }
         }
 
         private void AppendSignals(IReadOnlyList<SimulationLogSignal> signals)

@@ -17,6 +17,9 @@ namespace Weave.Presentation
     [RequireComponent(typeof(PrototypeGameSession))]
     public sealed class PrototypeShowcaseController : MonoBehaviour
     {
+        private const string PrototypePlayerId = "Player";
+        private const string PrototypePlayerDisplayName = "Player";
+
         private sealed class PopupChoice
         {
             public string Label;
@@ -101,6 +104,24 @@ namespace Weave.Presentation
                 return;
             }
 
+            if (!string.Equals(controlledCharacter.CharacterId, PrototypePlayerId, StringComparison.Ordinal))
+            {
+                Debug.LogError(
+                    $"Controlled character ID must be '{PrototypePlayerId}' for the current prototype (found '{controlledCharacter.CharacterId}').",
+                    controlledCharacter);
+                enabled = false;
+                return;
+            }
+
+            if (!string.Equals(controlledCharacter.DisplayName, PrototypePlayerDisplayName, StringComparison.Ordinal))
+            {
+                Debug.LogError(
+                    $"Controlled character display name must be '{PrototypePlayerDisplayName}' for the current prototype (found '{controlledCharacter.DisplayName}').",
+                    controlledCharacter);
+                enabled = false;
+                return;
+            }
+
             if (worldRegistry.FindNpc(controlledCharacter.CharacterId) != null)
             {
                 Debug.LogError($"Controlled character id '{controlledCharacter.CharacterId}' is also assigned to an authored NPC.", this);
@@ -123,6 +144,13 @@ namespace Weave.Presentation
             session.SimulationLogEntryAdded += HandleSimulationLogEntryAdded;
             AuthoredVillageLocation.Clicked += HandleLocationClicked;
             session.StartRun(controlledCharacter);
+            if (!session.IsRunInitialized || session.RunState == null)
+            {
+                Debug.LogError("Prototype run failed to initialize. See earlier errors for setup details.", this);
+                enabled = false;
+                return;
+            }
+
             RefreshPresentation();
             UpdateCharacterVisuals();
             RebuildActivityConsoleFromSession();
@@ -312,6 +340,11 @@ namespace Weave.Presentation
         private void RefreshPresentation()
         {
             if (session == null || session.RunState == null || controlledCharacter == null || suppressRefresh)
+            {
+                return;
+            }
+
+            if (!session.IsRunInitialized)
             {
                 return;
             }

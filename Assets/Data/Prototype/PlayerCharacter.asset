@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 37d9170f6ce04f74bacf6f80f2aaf173, type: 3}
   m_Name: Player
   m_EditorClassIdentifier: Assembly-CSharp::Weave.Data.CharacterDefinition
-  characterId: player
+  characterId: Player
   displayName: Player
   profession: 5
   mapColor: {r: 0.39, g: 0.74, b: 0.96, a: 1}
