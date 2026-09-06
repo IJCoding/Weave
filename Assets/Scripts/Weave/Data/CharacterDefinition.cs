@@ -36,6 +36,7 @@ namespace Weave.Data
         [SerializeField] private ProfessionType profession = ProfessionType.Villager;
         [SerializeField] private Color mapColor = Color.white;
         [SerializeField] private LocationDefinition homeLocation;
+        [SerializeField] private string homeLocationId = string.Empty;
         [SerializeField] private List<ResourceAmount> startingResources = new List<ResourceAmount>();
         [SerializeField] private List<CanonDecisionDefault> developerCanon = new List<CanonDecisionDefault>();
 
@@ -44,6 +45,9 @@ namespace Weave.Data
         public ProfessionType Profession => profession;
         public Color MapColor => mapColor;
         public LocationDefinition HomeLocation => homeLocation;
+        public string HomeLocationId => !string.IsNullOrWhiteSpace(homeLocationId)
+            ? homeLocationId
+            : homeLocation != null ? homeLocation.LocationId : string.Empty;
         public IReadOnlyList<ResourceAmount> StartingResources => startingResources;
         public IReadOnlyList<CanonDecisionDefault> DeveloperCanon => developerCanon;
     }

@@ -9,6 +9,7 @@ namespace Weave.Data
         [SerializeField] private string taskId = string.Empty;
         [SerializeField] private string displayName = string.Empty;
         [SerializeField] private LocationDefinition requiredLocation;
+        [SerializeField] private string requiredLocationId = string.Empty;
         [SerializeField] private List<CharacterDefinition> eligibleCharacters = new List<CharacterDefinition>();
         [SerializeField] private List<string> requiredWorldFlags = new List<string>();
         [SerializeField] private List<string> blockedWorldFlags = new List<string>();
@@ -22,6 +23,9 @@ namespace Weave.Data
         public string TaskId => taskId;
         public string DisplayName => displayName;
         public LocationDefinition RequiredLocation => requiredLocation;
+        public string RequiredLocationId => !string.IsNullOrWhiteSpace(requiredLocationId)
+            ? requiredLocationId
+            : requiredLocation != null ? requiredLocation.LocationId : string.Empty;
         public IReadOnlyList<CharacterDefinition> EligibleCharacters => eligibleCharacters;
         public IReadOnlyList<string> RequiredWorldFlags => requiredWorldFlags;
         public IReadOnlyList<string> BlockedWorldFlags => blockedWorldFlags;

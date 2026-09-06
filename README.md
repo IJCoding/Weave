@@ -418,6 +418,32 @@ That is enough to prove:
 The initial code scaffold added in this step provides:
 
 - ScriptableObject definitions for calendar, characters, locations, tasks, and events
+- an editor-authored prototype village in `Assets/Scenes/SampleScene.unity`
+- drag-and-drop world prefabs in `Assets/Prefabs/World/`
+- authored world discovery via `AuthoredVillageWorldRegistry`
+- command-based travel across authored locations and road tiles
+
+## Authoring the prototype village
+
+Use the scene itself as the authoritative world layout.
+
+### How to build a village
+
+1. Drag `Assets/Prefabs/World/Location.prefab` into the scene.
+2. Set its `Location ID`, `Display Name`, and optional `Visual Label`.
+3. Assign `TaskDefinition` assets in the location's `Available Tasks` list.
+4. Position the `TravelAnchor` child where characters should stand.
+5. Drag `Assets/Prefabs/World/RoadTile.prefab` into the scene and duplicate it to form roads.
+6. Adjust each road tile's `Movement Multiplier` to tune travel speed.
+7. Drag `Assets/Prefabs/World/NPC.prefab` into the scene.
+8. Assign its `CharacterDefinition`, `Starting Location`, `Home Location`, and `Talk Event`.
+9. Press Play. `AuthoredVillageWorldRegistry` discovers the scene objects automatically.
+
+### Runtime split
+
+- Scene-authored objects own spatial layout, travel anchors, road placement, and location task membership.
+- `RunState` still owns mutable simulation state such as current location, carried resources, active task, travel progress, and world flags.
+- Save/load stays stable through `LocationId` strings instead of scene object references.
 - runtime state types for the current run
 - canon resolution
 - a small day/task/event simulation service
