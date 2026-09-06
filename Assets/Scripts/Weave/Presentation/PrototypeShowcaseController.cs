@@ -1611,6 +1611,7 @@ namespace Weave.Presentation
             }
 
             var characterState = session.RunState.GetCharacter(characterId);
+            var actionProgress = session.GetActionProgressForCharacter(characterId);
 
             if (!characterState.IsWorkingOnTask || characterState.TaskDurationSeconds <= 0f)
             {
@@ -1618,8 +1619,13 @@ namespace Weave.Presentation
                 return;
             }
 
-            var progress = Mathf.Clamp01(characterState.TaskElapsedSeconds / characterState.TaskDurationSeconds);
-            ring.fillAmount = progress;
+            if (!actionProgress.HasPhases || actionProgress.CurrentPhase.PhaseType != ActionPhaseType.Work)
+            {
+                ring.gameObject.SetActive(false);
+                return;
+            }
+
+            ring.fillAmount = actionProgress.CurrentPhaseProgress;
             ring.color = WorkPhaseColor;
             ring.gameObject.SetActive(true);
         }

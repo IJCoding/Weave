@@ -490,7 +490,7 @@ namespace Weave.Simulation
 
             var phases = new List<ActionPhaseProgress>();
             var hasWorkPhase = !task.CompleteOnArrival;
-            var travelDuration = Mathf.Max(travelDurationSeconds, 0.01f);
+            var travelDuration = Mathf.Max(travelDurationSeconds, 0f);
             var isReturnTravel = task.CompleteOnArrival &&
                 task.RequiredLocation != null &&
                 task.RequiredLocation.LocationId == characterState.HomeLocationId &&
