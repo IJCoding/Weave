@@ -1400,9 +1400,9 @@ namespace Weave.Presentation
 
             var eventSystemObject = new GameObject("EventSystem");
             eventSystemObject.AddComponent<EventSystem>();
-#if ENABLE_INPUT_SYSTEM
+#if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
-#elif ENABLE_LEGACY_INPUT_MANAGER
+#else
             eventSystemObject.AddComponent<StandaloneInputModule>();
 #endif
         }
