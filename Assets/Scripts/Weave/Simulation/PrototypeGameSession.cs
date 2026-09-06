@@ -72,9 +72,11 @@ namespace Weave.Simulation
         public ActionPhaseProgress CurrentPhase { get; }
         public bool HasPhases => Phases != null && Phases.Count > 0;
         public float OverallProgress =>
-            TotalDurationSeconds <= Mathf.Epsilon ? 0f : Mathf.Clamp01(CompletedDurationSeconds / TotalDurationSeconds);
+            TotalDurationSeconds <= Mathf.Epsilon
+                ? (HasPhases ? 1f : 0f)
+                : Mathf.Clamp01(CompletedDurationSeconds / TotalDurationSeconds);
         public float CurrentPhaseProgress => CurrentPhase.DurationSeconds <= Mathf.Epsilon
-            ? 0f
+            ? (CurrentPhaseIndex >= 0 ? 1f : 0f)
             : Mathf.Clamp01(CurrentPhase.ElapsedSeconds / CurrentPhase.DurationSeconds);
         public float CurrentPhaseRemainingSeconds =>
             Mathf.Max(0f, CurrentPhase.DurationSeconds - CurrentPhase.ElapsedSeconds);

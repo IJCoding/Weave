@@ -204,6 +204,63 @@ namespace Weave.Tests.EditMode
         }
 
         [Test]
+        public void CharacterMapPosition_InterpolatesDuringTravelBasedOnSimulationProgress()
+        {
+            var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
+            SerializedFieldUtility.SetPrivateField(calendar, "startingYear", 1);
+            SerializedFieldUtility.SetPrivateField(calendar, "seasons", new List<string> { "Spring" });
+            SerializedFieldUtility.SetPrivateField(calendar, "daysPerSeason", 3);
+            SerializedFieldUtility.SetPrivateField(calendar, "dayDurationSeconds", 300f);
+            SerializedFieldUtility.SetPrivateField(calendar, "normalSimulationSpeed", 1f);
+            SerializedFieldUtility.SetPrivateField(calendar, "fastForwardSimulationSpeed", 3f);
+
+            var home = ScriptableObject.CreateInstance<LocationDefinition>();
+            SerializedFieldUtility.SetPrivateField(home, "locationId", "home");
+            SerializedFieldUtility.SetPrivateField(home, "displayName", "Home");
+            SerializedFieldUtility.SetPrivateField(home, "mapPosition", Vector2.zero);
+
+            var mine = ScriptableObject.CreateInstance<LocationDefinition>();
+            SerializedFieldUtility.SetPrivateField(mine, "locationId", "mine");
+            SerializedFieldUtility.SetPrivateField(mine, "displayName", "Mine");
+            SerializedFieldUtility.SetPrivateField(mine, "mapPosition", new Vector2(0f, 4f));
+
+            var miner = CreateCharacter("miner", "Miner", home);
+            var mineTask = ScriptableObject.CreateInstance<TaskDefinition>();
+            SerializedFieldUtility.SetPrivateField(mineTask, "taskId", "mine_iron");
+            SerializedFieldUtility.SetPrivateField(mineTask, "displayName", "Mining Iron");
+            SerializedFieldUtility.SetPrivateField(mineTask, "requiredLocation", mine);
+            SerializedFieldUtility.SetPrivateField(mineTask, "eligibleCharacters", new List<CharacterDefinition> { miner });
+            SerializedFieldUtility.SetPrivateField(mineTask, "requiredWorldFlags", new List<string>());
+            SerializedFieldUtility.SetPrivateField(mineTask, "blockedWorldFlags", new List<string>());
+            SerializedFieldUtility.SetPrivateField(mineTask, "durationSeconds", 2f);
+            SerializedFieldUtility.SetPrivateField(mineTask, "actorResourceChanges", new List<ResourceAmount>());
+
+            var gameObject = new GameObject("Map Position Session");
+            try
+            {
+                var session = gameObject.AddComponent<PrototypeGameSession>();
+                SerializedFieldUtility.SetPrivateField(session, "secondsPerDistanceUnit", 2f);
+                session.Configure(calendar, new[] { home, mine }, new[] { miner }, new[] { mineTask }, new ResourceDefinition[0]);
+                session.StartRun(miner);
+                session.AssignPlayerTask(mineTask);
+
+                Assert.That(session.GetCharacterMapPosition("miner"), Is.EqualTo(Vector2.zero));
+
+                session.AdvanceSimulation(4f);
+                var midpoint = session.GetCharacterMapPosition("miner");
+                Assert.That(midpoint.y, Is.EqualTo(2f).Within(0.05f));
+
+                session.AdvanceSimulation(4f);
+                var destination = session.GetCharacterMapPosition("miner");
+                Assert.That(destination.y, Is.EqualTo(4f).Within(0.05f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
             public void AdvanceSimulation_DoesNotProgressWhilePaused()
             {
                 var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
