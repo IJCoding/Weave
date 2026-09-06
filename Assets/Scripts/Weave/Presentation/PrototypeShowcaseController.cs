@@ -731,10 +731,10 @@ namespace Weave.Presentation
                 var travelOrPrep = GetTravelHintForTask(controlledState, taskButton.Task);
                 var suffix = controlledState.HasActiveTask
                     ? controlledState.CurrentTaskId == taskButton.Task.TaskId
-                        ? $" — {GetTaskStateText(controlledState)}"
-                        : " — Busy"
-                    : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " — Unavailable";
-                taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s) — {travelOrPrep}{suffix}";
+                        ? $" • {GetTaskStateText(controlledState)}"
+                        : " • Busy"
+                    : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " • Unavailable";
+                taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s) [{travelOrPrep}]{suffix}";
 
                 var fillProgress = selectedTaskTravelling ? Mathf.Clamp01(controlledState.TravelProgress) : 0f;
                 taskButton.Fill.rectTransform.anchorMax = new Vector2(fillProgress, 1f);
