@@ -992,10 +992,9 @@ namespace Weave.Presentation
                 taskButton.Label.alignment = TextAnchor.UpperLeft;
                 taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s)\n{statusLine}";
                 RefreshTaskPhaseBar(taskButton, progress, isSelectedTask);
-                taskButton.Button.gameObject.SetActive(
-                    controlledState.IsTravelling
-                        ? isSelectedTask
-                        : visibleAtLocation || isSelectedTask);
+                var shouldBeVisible = isSelectedTask ||
+                    (!controlledState.IsTravelling && visibleAtLocation);
+                taskButton.Button.gameObject.SetActive(shouldBeVisible);
             }
         }
 

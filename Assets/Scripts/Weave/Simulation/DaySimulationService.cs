@@ -211,6 +211,11 @@ namespace Weave.Simulation
                 return MinimumDurationSeconds;
             }
 
+            if (!HasLocation(destinationLocationId, locations))
+            {
+                return MinimumDurationSeconds;
+            }
+
             var origin = GetLocationPosition(characterState.CurrentLocationId, locations);
             var destination = GetLocationPosition(destinationLocationId, locations);
             var distance = Vector2.Distance(origin, destination);
@@ -723,6 +728,24 @@ namespace Weave.Simulation
             }
 
             return Vector2.zero;
+        }
+
+        private static bool HasLocation(string locationId, IEnumerable<LocationDefinition> locations)
+        {
+            if (string.IsNullOrEmpty(locationId) || locations == null)
+            {
+                return false;
+            }
+
+            foreach (var location in locations)
+            {
+                if (location != null && location.LocationId == locationId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static float GetCarriedWeight(CharacterState characterState, IEnumerable<ResourceDefinition> resources)
