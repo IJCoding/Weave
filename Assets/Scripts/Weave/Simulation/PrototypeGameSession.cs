@@ -810,8 +810,7 @@ namespace Weave.Simulation
                 throw new InvalidOperationException("Cannot start run because ControlledCharacterId is empty.");
             }
 
-            var controlledState = runState.GetCharacter(runState.ControlledCharacterId);
-            if (controlledState == null)
+            if (!runState.Characters.TryGetValue(runState.ControlledCharacterId, out var controlledState) || controlledState == null)
             {
                 throw new InvalidOperationException($"Controlled character '{runState.ControlledCharacterId}' is not registered in RunState.");
             }
