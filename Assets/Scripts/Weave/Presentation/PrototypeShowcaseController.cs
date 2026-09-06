@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem.UI;
+#endif
 using Weave.Data;
 using Weave.Runtime;
 using Weave.Simulation;
@@ -67,6 +69,7 @@ namespace Weave.Presentation
         private string statusMessage = "The prototype now runs on realtime day progression with timed travel, tasks, and modal events.";
         private List<string> seasonNames = new List<string>();
         private bool popupOwnsPause;
+        private bool suppressPresentationRefresh;
 
         private Canvas runtimeCanvas;
         private RectTransform compositionRoot;
@@ -653,7 +656,8 @@ namespace Weave.Presentation
                 session.RunState == null ||
                 controlledCharacter == null ||
                 dayText == null ||
-                timeRemainingText == null)
+                timeRemainingText == null ||
+                suppressPresentationRefresh)
             {
                 return;
             }
@@ -808,11 +812,13 @@ namespace Weave.Presentation
                     Label = capturedLabel,
                     OnSelected = () =>
                     {
+                        suppressPresentationRefresh = true;
                         var resolution = session.ResolvePlayerEvent(eventDefinition, capturedOptionId);
                         statusMessage = string.IsNullOrEmpty(resolution.SummaryText)
                             ? $"Resolved {GetEventTitle(eventDefinition)}."
                             : resolution.SummaryText;
                         ClosePopupIfOpen();
+                        suppressPresentationRefresh = false;
                         RefreshPresentation();
                     }
                 });
@@ -1394,7 +1400,12 @@ namespace Weave.Presentation
 
             var eventSystemObject = new GameObject("EventSystem");
             eventSystemObject.AddComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM
             eventSystemObject.AddComponent<InputSystemUIInputModule>();
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+            eventSystemObject.AddComponent<StandaloneInputModule>();
+#endif
         }
 
         private RectTransform CreateRect(string name, Transform parent)
