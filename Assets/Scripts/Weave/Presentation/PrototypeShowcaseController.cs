@@ -67,7 +67,16 @@ namespace Weave.Presentation
             public Text Label;
         }
 
-        private readonly Dictionary<string, RectTransform> mapLocationNodes = new Dictionary<string, RectTransform>();
+        private sealed class MapLocationNodeView
+        {
+            public LocationDefinition Location;
+            public RectTransform Rect;
+            public Image Image;
+            public Outline Outline;
+            public Button Button;
+        }
+
+        private readonly Dictionary<string, MapLocationNodeView> mapLocationNodes = new Dictionary<string, MapLocationNodeView>();
         private readonly Dictionary<string, RectTransform> characterMarkers = new Dictionary<string, RectTransform>();
         private readonly Dictionary<string, Image> workRings = new Dictionary<string, Image>();
         private readonly Dictionary<string, Text> locationCoordinateTexts = new Dictionary<string, Text>();
@@ -93,6 +102,8 @@ namespace Weave.Presentation
         private bool popupOwnsPause;
         private bool suppressPresentationRefresh;
         private bool pendingActivityScrollToBottom;
+        private string selectedMapLocationId;
+        private string inventorySnapshot = string.Empty;
 
         private Canvas runtimeCanvas;
         private RectTransform compositionRoot;
@@ -105,6 +116,11 @@ namespace Weave.Presentation
         private Text resourcesText;
         private Text carryingText;
         private Text worldFlagsText;
+        private Text actionLocationHeaderText;
+        private Text actionPanelStatusText;
+        private Text inventoryCarriedText;
+        private Text inventoryStoredText;
+        private Text inventoryWeightText;
         private ScrollRect activityScrollRect;
         private RectTransform activityConsoleContent;
         private Text activityConsoleText;
@@ -146,6 +162,10 @@ namespace Weave.Presentation
             session.SimulationAdvanced += HandleSimulationAdvanced;
             session.SimulationLogEntryAdded += HandleSimulationLogEntryAdded;
             session.StartRun(controlledCharacter);
+            selectedMapLocationId = controlledCharacter != null && controlledCharacter.HomeLocation != null
+                ? controlledCharacter.HomeLocation.LocationId
+                : string.Empty;
+            inventorySnapshot = string.Empty;
             ApplyFixedAspect();
             UpdateCharacterMarkers();
             RebuildActivityConsoleFromSession();
@@ -447,18 +467,44 @@ namespace Weave.Presentation
                 new Vector2(0f, 1f),
                 new Vector2(1f, 1f),
                 new Vector2(16f, -16f),
-                new Vector2(-16f, -48f),
-                "Available Assignments",
-                22,
+                new Vector2(-16f, -46f),
+                "CURRENT LOCATION",
+                24,
                 FontStyle.Bold,
                 TextAnchor.MiddleLeft,
                 Color.white);
+
+            actionLocationHeaderText = CreateText(
+                "Task Location Header",
+                taskListPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -50f),
+                new Vector2(-16f, -82f),
+                string.Empty,
+                20,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                new Color(0.87f, 0.92f, 0.99f, 1f));
+
+            actionPanelStatusText = CreateText(
+                "Task Status Header",
+                taskListPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -84f),
+                new Vector2(-16f, -118f),
+                "Available Actions",
+                16,
+                FontStyle.Normal,
+                TextAnchor.MiddleLeft,
+                new Color(0.73f, 0.79f, 0.86f, 1f));
 
             taskButtonContainer = CreateRect("Task Buttons", taskListPanel);
             taskButtonContainer.anchorMin = new Vector2(0f, 0f);
             taskButtonContainer.anchorMax = new Vector2(1f, 1f);
             taskButtonContainer.offsetMin = new Vector2(16f, 16f);
-            taskButtonContainer.offsetMax = new Vector2(-16f, -56f);
+            taskButtonContainer.offsetMax = new Vector2(-16f, -124f);
             var taskLayout = taskButtonContainer.gameObject.AddComponent<VerticalLayoutGroup>();
             taskLayout.spacing = 10f;
             taskLayout.childControlHeight = true;
@@ -512,12 +558,73 @@ namespace Weave.Presentation
                 });
             }
 
+            var inventoryPanel = CreatePanel(
+                "Inventory Panel",
+                bottomPanel,
+                new Vector2(0.48f, 0f),
+                new Vector2(1f, 0.42f),
+                new Vector2(12f, 18f),
+                new Vector2(-18f, -12f),
+                new Color(0.10f, 0.13f, 0.17f, 0.92f));
+
+            CreateText(
+                "Inventory Label",
+                inventoryPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -16f),
+                new Vector2(-16f, -48f),
+                "INVENTORY",
+                22,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                Color.white);
+
+            inventoryCarriedText = CreateText(
+                "Inventory Carried",
+                inventoryPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -52f),
+                new Vector2(-16f, -112f),
+                "Carried:\nNone",
+                17,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                new Color(0.87f, 0.92f, 0.98f, 1f));
+
+            inventoryStoredText = CreateText(
+                "Inventory Stored",
+                inventoryPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(16f, -114f),
+                new Vector2(-16f, -174f),
+                "Stored:\nNone",
+                17,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                new Color(0.87f, 0.92f, 0.98f, 1f));
+
+            inventoryWeightText = CreateText(
+                "Inventory Weight",
+                inventoryPanel,
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(16f, 16f),
+                new Vector2(-16f, 48f),
+                "Carry Weight: 0",
+                17,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                new Color(0.93f, 0.97f, 1f, 1f));
+
             var activityPanel = CreatePanel(
                 "Activity Panel",
                 bottomPanel,
-                new Vector2(0.48f, 0f),
+                new Vector2(0.48f, 0.42f),
                 new Vector2(1f, 1f),
-                new Vector2(12f, 18f),
+                new Vector2(12f, 12f),
                 new Vector2(-18f, -18f),
                 new Color(0.10f, 0.13f, 0.17f, 0.92f));
 
@@ -528,7 +635,7 @@ namespace Weave.Presentation
                 new Vector2(1f, 1f),
                 new Vector2(16f, -16f),
                 new Vector2(-16f, -48f),
-                "ACTIVITY",
+                "ACTIVITY LOG",
                 22,
                 FontStyle.Bold,
                 TextAnchor.MiddleLeft,
@@ -682,7 +789,23 @@ namespace Weave.Presentation
                     new Vector2(40f, 24f),
                     GetLocationColor(location.LocationType));
                 locationRect.localScale = Vector3.one;
-                mapLocationNodes[location.LocationId] = locationRect;
+                var locationImage = locationRect.GetComponent<Image>();
+                var locationOutline = locationRect.gameObject.AddComponent<Outline>();
+                locationOutline.effectColor = new Color(0.24f, 0.29f, 0.35f, 1f);
+                locationOutline.effectDistance = new Vector2(1.5f, -1.5f);
+                var locationButton = locationRect.gameObject.AddComponent<Button>();
+                locationButton.targetGraphic = locationImage;
+                var capturedLocationId = location.LocationId;
+                locationButton.onClick.AddListener(() => HandleMapLocationClicked(capturedLocationId));
+
+                mapLocationNodes[location.LocationId] = new MapLocationNodeView
+                {
+                    Location = location,
+                    Rect = locationRect,
+                    Image = locationImage,
+                    Outline = locationOutline,
+                    Button = locationButton
+                };
 
                 var nameText = CreateText(
                     $"{location.DisplayName} Name",
@@ -760,6 +883,7 @@ namespace Weave.Presentation
             }
 
             RefreshMapLayout();
+            RefreshMapLocationVisualStates();
         }
 
         private void RefreshPresentation()
@@ -776,6 +900,11 @@ namespace Weave.Presentation
 
             var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
             var actionProgress = session.GetActionProgressForCharacter(controlledCharacter.CharacterId);
+            if (string.IsNullOrEmpty(selectedMapLocationId))
+            {
+                selectedMapLocationId = controlledState.CurrentLocationId;
+            }
+
             controlledCharacterText.text = $"{controlledCharacter.DisplayName} ({controlledCharacter.Profession})";
             currentLocationText.text = GetCurrentLocationText(controlledState);
             resourcesText.text = $"Stored: {FormatResources(controlledState.StoredResources)}";
@@ -785,14 +914,32 @@ namespace Weave.Presentation
             timeRemainingText.text = $"{FormatDuration(session.RunState.DayTimer.RemainingSeconds)} Remaining";
 
             RefreshTaskButtons(controlledState, actionProgress);
+            RefreshInventoryPanel(controlledState);
+            RefreshMapLocationVisualStates();
             RefreshSpeedButtons();
         }
 
         private void RefreshTaskButtons(CharacterState controlledState, ActionProgressSummary activeActionProgress)
         {
             var availableTaskIds = new HashSet<string>();
+            var currentLocationTaskIds = new HashSet<string>();
+            var isBusy = controlledState.IsTravelling || controlledState.IsWorkingOnTask;
+            var currentLocationName = GetLocationDisplayName(controlledState.CurrentLocationId).ToUpperInvariant();
+            if (actionLocationHeaderText != null)
+            {
+                actionLocationHeaderText.text = currentLocationName;
+            }
 
-            if (!controlledState.HasActiveTask)
+            if (actionPanelStatusText != null)
+            {
+                actionPanelStatusText.text = controlledState.IsTravelling
+                    ? $"Travelling to {GetLocationDisplayName(controlledState.TravelDestinationLocationId)}...\nNo actions available while travelling."
+                    : controlledState.IsWorkingOnTask
+                        ? "Action in progress..."
+                        : "Available Actions";
+            }
+
+            if (!isBusy)
             {
                 foreach (var task in session.GetPlayerTasks())
                 {
@@ -800,23 +947,43 @@ namespace Weave.Presentation
                 }
             }
 
+            foreach (var task in tasks)
+            {
+                if (task == null ||
+                    task.CompleteOnArrival ||
+                    task.RequiredLocation == null ||
+                    task.RequiredLocation.LocationId != controlledState.CurrentLocationId)
+                {
+                    continue;
+                }
+
+                currentLocationTaskIds.Add(task.TaskId);
+            }
+
+            if (!isBusy && availableTaskIds.Count == 0 && actionPanelStatusText != null)
+            {
+                actionPanelStatusText.text = "No actions available at this location.";
+            }
+
             foreach (var taskButton in taskButtons)
             {
-                var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !controlledState.HasActiveTask;
+                var visibleAtLocation = currentLocationTaskIds.Contains(taskButton.Task.TaskId);
+                var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !isBusy;
                 taskButton.Button.interactable = available;
                 var isSelectedTask = controlledState.HasActiveTask && controlledState.CurrentTaskId == taskButton.Task.TaskId;
                 var progress = isSelectedTask
                     ? activeActionProgress
                     : session.GetTaskPlanPreview(controlledCharacter.CharacterId, taskButton.Task);
-                var travelOrPrep = GetTravelHintForTask(controlledState, taskButton.Task, progress);
-                var suffix = controlledState.HasActiveTask
+                var suffix = isBusy
                     ? controlledState.CurrentTaskId == taskButton.Task.TaskId
                         ? string.Empty
                         : " • Busy"
                     : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " • Unavailable";
                 var statusLine = isSelectedTask
                     ? GetActiveTaskStatusLine(progress, taskButton.Task)
-                    : $"Travel: {travelOrPrep}";
+                    : visibleAtLocation
+                        ? "Local action"
+                        : "Not available here";
                 if (!string.IsNullOrEmpty(suffix))
                 {
                     statusLine = $"{statusLine}{suffix}";
@@ -825,6 +992,9 @@ namespace Weave.Presentation
                 taskButton.Label.alignment = TextAnchor.UpperLeft;
                 taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s)\n{statusLine}";
                 RefreshTaskPhaseBar(taskButton, progress, isSelectedTask);
+                var shouldBeVisible = isSelectedTask ||
+                    (!controlledState.IsTravelling && visibleAtLocation);
+                taskButton.Button.gameObject.SetActive(shouldBeVisible);
             }
         }
 
@@ -926,6 +1096,29 @@ namespace Weave.Presentation
             pendingActivityScrollToBottom = true;
         }
 
+        private void RefreshInventoryPanel(CharacterState controlledState)
+        {
+            if (inventoryCarriedText == null || inventoryStoredText == null || inventoryWeightText == null)
+            {
+                return;
+            }
+
+            var carried = FormatResourceLines(controlledState.CarriedResources);
+            var stored = FormatResourceLines(controlledState.StoredResources);
+            var weight = session.GetCharacterCarriedWeight(controlledCharacter.CharacterId);
+            var snapshot = $"{carried}|{stored}|{weight:0.##}";
+
+            if (snapshot == inventorySnapshot)
+            {
+                return;
+            }
+
+            inventorySnapshot = snapshot;
+            inventoryCarriedText.text = $"Carried:\n{carried}";
+            inventoryStoredText.text = $"Stored:\n{stored}";
+            inventoryWeightText.text = $"Carry Weight: {weight:0.##}";
+        }
+
         private string FormatActivityEntry(SimulationLogEntry entry)
         {
             var timestamp = $"D{entry.DayOfSeason:00} {FormatDuration(entry.DayElapsedSeconds)}";
@@ -937,6 +1130,10 @@ namespace Weave.Presentation
             ClosePopupIfOpen();
             playerCanon = new PlayerCanonState();
             session.StartRun(controlledCharacter);
+            selectedMapLocationId = controlledCharacter != null && controlledCharacter.HomeLocation != null
+                ? controlledCharacter.HomeLocation.LocationId
+                : string.Empty;
+            inventorySnapshot = string.Empty;
             RebuildActivityConsoleFromSession();
             RefreshPresentation();
         }
@@ -1065,8 +1262,70 @@ namespace Weave.Presentation
                     continue;
                 }
 
-                node.anchoredPosition = GetMapAnchoredPosition(location.MapPosition);
+                node.Rect.anchoredPosition = GetMapAnchoredPosition(location.MapPosition);
             }
+        }
+
+        private void RefreshMapLocationVisualStates()
+        {
+            if (session == null || session.RunState == null || controlledCharacter == null)
+            {
+                return;
+            }
+
+            var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+            var currentLocationId = controlledState.CurrentLocationId;
+            var destinationLocationId = controlledState.IsTravelling
+                ? controlledState.TravelDestinationLocationId
+                : selectedMapLocationId;
+            var canTravel = !controlledState.IsTravelling && !controlledState.IsWorkingOnTask;
+
+            foreach (var node in mapLocationNodes.Values)
+            {
+                if (node == null || node.Location == null)
+                {
+                    continue;
+                }
+
+                var isCurrent = node.Location.LocationId == currentLocationId;
+                var isDestination = !string.IsNullOrEmpty(destinationLocationId) &&
+                    node.Location.LocationId == destinationLocationId;
+
+                node.Image.color = GetLocationColor(node.Location.LocationType);
+                node.Outline.effectColor = isCurrent
+                    ? new Color(0.86f, 0.92f, 1f, 1f)
+                    : isDestination
+                        ? new Color(0.27f, 0.89f, 0.50f, 1f)
+                        : new Color(0.24f, 0.29f, 0.35f, 1f);
+                node.Outline.effectDistance = isCurrent || isDestination
+                    ? new Vector2(3f, -3f)
+                    : new Vector2(1.5f, -1.5f);
+                node.Button.interactable = canTravel;
+            }
+        }
+
+        private void HandleMapLocationClicked(string locationId)
+        {
+            if (session == null || session.RunState == null || controlledCharacter == null)
+            {
+                return;
+            }
+
+            selectedMapLocationId = locationId;
+            var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+
+            if (controlledState.IsTravelling || controlledState.IsWorkingOnTask)
+            {
+                RefreshPresentation();
+                return;
+            }
+
+            if (controlledState.CurrentLocationId != locationId)
+            {
+                session.RequestPlayerTravel(locationId);
+            }
+
+            RefreshPresentation();
         }
 
         private Vector2 GetMapAnchoredPosition(Vector2 logicalPosition)
@@ -1233,17 +1492,7 @@ namespace Weave.Presentation
                     new List<ResourceAmount> { new ResourceAmount { ResourceId = "goodwill", Amount = 1 } },
                     false,
                     false,
-                    false)),
-                Track(CreateTask(
-                    "return_home",
-                    "Return Home",
-                    home,
-                    0f,
-                    new List<CharacterDefinition>(),
-                    new List<ResourceAmount>(),
-                    false,
-                    true,
-                    true))
+                    false))
             };
 
             scenario.PlayerEvent = Track(CreatePlayerEvent(mina));
@@ -1538,36 +1787,9 @@ namespace Weave.Presentation
                     return $"Preparing... {remainingSeconds}s remaining";
                 case ActionPhaseType.Work:
                     return $"{GetWorkVerb(task)}... {remainingSeconds}s remaining";
-                case ActionPhaseType.ReturnTravel:
-                    return $"Returning Home... {remainingSeconds}s remaining";
-                case ActionPhaseType.Deposit:
-                    return $"Depositing... {remainingSeconds}s remaining";
                 default:
                     return $"In progress... {remainingSeconds}s remaining";
             }
-        }
-
-        private string GetTravelHintForTask(CharacterState controlledState, TaskDefinition task, ActionProgressSummary progress)
-        {
-            if (task == null || task.RequiredLocation == null)
-            {
-                return "No location";
-            }
-
-            var travelPhase = progress.HasPhases ? progress.Phases[0] : default;
-            var travelSeconds = Mathf.CeilToInt(travelPhase.DurationSeconds);
-            var isReturnTask = travelPhase.PhaseType == ActionPhaseType.ReturnTravel;
-
-            if (isReturnTask)
-            {
-                var carryWeight = session.GetCharacterCarriedWeight(controlledCharacter.CharacterId);
-                return $"{travelSeconds}s return / {carryWeight:0.#} wt";
-            }
-
-            var sameLocation = controlledState.CurrentLocationId == task.RequiredLocation.LocationId;
-            return sameLocation
-                ? $"Here / {travelSeconds}s prep"
-                : $"{travelSeconds}s travel";
         }
 
         private static string GetWorkVerb(TaskDefinition task)
@@ -1595,6 +1817,20 @@ namespace Weave.Presentation
 
             var characterState = session.RunState.GetCharacter(characterId);
             var actionProgress = session.GetActionProgressForCharacter(characterId);
+
+            if (characterState.IsTravelling)
+            {
+                var travelProgress = Mathf.Clamp01(characterState.TravelProgress);
+                if (actionProgress.HasPhases && actionProgress.CurrentPhase.PhaseType == ActionPhaseType.TravelPreparation)
+                {
+                    travelProgress = actionProgress.CurrentPhaseProgress;
+                }
+
+                ring.fillAmount = travelProgress;
+                ring.color = phaseTheme.TravelPreparationColor;
+                ring.gameObject.SetActive(true);
+                return;
+            }
 
             if (!characterState.IsWorkingOnTask || characterState.TaskDurationSeconds <= 0f)
             {
@@ -1684,6 +1920,44 @@ namespace Weave.Presentation
             return first ? "None" : builder.ToString();
         }
 
+        private string FormatResourceLines(IReadOnlyDictionary<string, int> resourcesById)
+        {
+            var builder = new StringBuilder();
+            var orderedResources = new List<KeyValuePair<string, int>>();
+
+            foreach (var resource in resourcesById)
+            {
+                if (resource.Value <= 0)
+                {
+                    continue;
+                }
+
+                orderedResources.Add(resource);
+            }
+
+            orderedResources.Sort((left, right) =>
+            {
+                var leftName = session.GetResourceDisplayName(left.Key);
+                var rightName = session.GetResourceDisplayName(right.Key);
+                var byName = string.Compare(leftName, rightName, StringComparison.Ordinal);
+                return byName != 0 ? byName : string.Compare(left.Key, right.Key, StringComparison.Ordinal);
+            });
+
+            foreach (var resource in orderedResources)
+            {
+                if (builder.Length > 0)
+                {
+                    builder.Append('\n');
+                }
+
+                builder.Append(session.GetResourceDisplayName(resource.Key));
+                builder.Append(" x");
+                builder.Append(resource.Value);
+            }
+
+            return builder.Length == 0 ? "None" : builder.ToString();
+        }
+
         private static void SetAnchoredHorizontal(RectTransform rectTransform, float minX, float maxX)
         {
             rectTransform.anchorMin = new Vector2(minX, 0f);
@@ -1700,10 +1974,6 @@ namespace Weave.Presentation
                     return phaseTheme.TravelPreparationColor;
                 case ActionPhaseType.Work:
                     return phaseTheme.WorkColor;
-                case ActionPhaseType.ReturnTravel:
-                    return phaseTheme.ReturnTravelColor;
-                case ActionPhaseType.Deposit:
-                    return phaseTheme.DepositColor;
                 default:
                     return Color.white;
             }
