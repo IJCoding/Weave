@@ -1,0 +1,153 @@
+using System;
+using System.Collections.Generic;
+using Weave.Data;
+
+namespace Weave.Runtime
+{
+    [Serializable]
+    public sealed class CalendarState
+    {
+        public int Year;
+        public int SeasonIndex;
+        public int DayOfSeason;
+
+        public CalendarState(int startingYear)
+        {
+            Year = startingYear;
+            SeasonIndex = 0;
+            DayOfSeason = 1;
+        }
+
+        public void Advance(GameCalendarDefinition definition)
+        {
+            DayOfSeason++;
+
+            if (DayOfSeason <= definition.DaysPerSeason)
+            {
+                return;
+            }
+
+            DayOfSeason = 1;
+            SeasonIndex++;
+
+            if (SeasonIndex < definition.Seasons.Count)
+            {
+                return;
+            }
+
+            SeasonIndex = 0;
+            Year++;
+        }
+    }
+
+    [Serializable]
+    public sealed class LocationState
+    {
+        public string LocationId;
+        public HashSet<string> Flags = new HashSet<string>();
+
+        public LocationState(string locationId)
+        {
+            LocationId = locationId;
+        }
+    }
+
+    [Serializable]
+    public sealed class CharacterState
+    {
+        public string CharacterId;
+        public string CurrentLocationId;
+        public string TravelOriginLocationId;
+        public string TravelDestinationLocationId;
+        public float TravelProgress;
+        public string CurrentTaskId;
+        public Dictionary<string, int> Resources = new Dictionary<string, int>();
+
+        public CharacterState(CharacterDefinition definition)
+        {
+            CharacterId = definition.CharacterId;
+            CurrentLocationId = definition.HomeLocation != null ? definition.HomeLocation.LocationId : string.Empty;
+            TravelOriginLocationId = CurrentLocationId;
+            TravelDestinationLocationId = CurrentLocationId;
+
+            foreach (var resource in definition.StartingResources)
+            {
+                Resources[resource.ResourceId] = resource.Amount;
+            }
+        }
+
+        public bool IsTravelling => TravelDestinationLocationId != CurrentLocationId;
+
+        public int GetResource(string resourceId)
+        {
+            return Resources.TryGetValue(resourceId, out var amount) ? amount : 0;
+        }
+
+        public void ChangeResource(string resourceId, int delta)
+        {
+            Resources[resourceId] = GetResource(resourceId) + delta;
+        }
+    }
+
+    [Serializable]
+    public sealed class PlayerCanonState
+    {
+        public Dictionary<string, Dictionary<string, string>> DecisionsByCharacter =
+            new Dictionary<string, Dictionary<string, string>>();
+
+        public bool TryGetOption(string characterId, string decisionKey, out string optionId)
+        {
+            optionId = string.Empty;
+
+            if (!DecisionsByCharacter.TryGetValue(characterId, out var characterDecisions))
+            {
+                return false;
+            }
+
+            return characterDecisions.TryGetValue(decisionKey, out optionId);
+        }
+
+        public void SetOption(string characterId, string decisionKey, string optionId)
+        {
+            if (!DecisionsByCharacter.TryGetValue(characterId, out var characterDecisions))
+            {
+                characterDecisions = new Dictionary<string, string>();
+                DecisionsByCharacter[characterId] = characterDecisions;
+            }
+
+            characterDecisions[decisionKey] = optionId;
+        }
+    }
+
+    [Serializable]
+    public sealed class RunState
+    {
+        public string ControlledCharacterId;
+        public CalendarState Calendar;
+        public Dictionary<string, CharacterState> Characters = new Dictionary<string, CharacterState>();
+        public Dictionary<string, LocationState> Locations = new Dictionary<string, LocationState>();
+        public HashSet<string> WorldFlags = new HashSet<string>();
+
+        public CharacterState GetCharacter(string characterId)
+        {
+            return Characters[characterId];
+        }
+
+        public bool HasWorldFlag(string flagId)
+        {
+            return WorldFlags.Contains(flagId);
+        }
+
+        public void SetWorldFlag(string flagId, bool present)
+        {
+            if (present)
+            {
+                WorldFlags.Add(flagId);
+            }
+            else
+            {
+                WorldFlags.Remove(flagId);
+            }
+        }
+    }
+}
