@@ -33,6 +33,7 @@ namespace Weave.Presentation
             public List<LocationDefinition> Locations;
             public List<CharacterDefinition> Characters;
             public List<TaskDefinition> Tasks;
+            public List<ResourceDefinition> Resources;
             public EventDefinition PlayerEvent;
             public EventDefinition NpcEvent;
         }
@@ -47,10 +48,12 @@ namespace Weave.Presentation
         {
             public TaskDefinition Task;
             public Button Button;
+            public Image Fill;
             public Text Label;
         }
 
         private readonly Dictionary<string, SpriteRenderer> characterMarkers = new Dictionary<string, SpriteRenderer>();
+        private readonly Dictionary<string, LineRenderer> workRings = new Dictionary<string, LineRenderer>();
         private readonly List<UnityEngine.Object> runtimeDefinitions = new List<UnityEngine.Object>();
         private readonly List<TaskButtonView> taskButtons = new List<TaskButtonView>();
 
@@ -62,6 +65,7 @@ namespace Weave.Presentation
         private List<TaskDefinition> tasks = new List<TaskDefinition>();
         private EventDefinition playerEvent;
         private EventDefinition npcEvent;
+        private List<ResourceDefinition> resources = new List<ResourceDefinition>();
         private Sprite squareSprite;
         private Sprite circleSprite;
         private GameObject runtimeVisualRoot;
@@ -78,6 +82,7 @@ namespace Weave.Presentation
         private Text controlledCharacterText;
         private Text currentLocationText;
         private Text resourcesText;
+        private Text carryingText;
         private Text worldFlagsText;
         private Text currentTaskText;
         private Text taskStateText;
@@ -108,11 +113,12 @@ namespace Weave.Presentation
             locations = scenario.Locations;
             characters = scenario.Characters;
             tasks = scenario.Tasks;
+            resources = scenario.Resources;
             playerEvent = scenario.PlayerEvent;
             npcEvent = scenario.NpcEvent;
             seasonNames = new List<string>(scenario.Calendar.Seasons);
 
-            session.Configure(scenario.Calendar, locations, characters, tasks);
+            session.Configure(scenario.Calendar, locations, characters, tasks, resources);
             ConfigureCamera();
             BuildRuntimeVisuals();
             BuildRuntimeUi();
@@ -149,6 +155,7 @@ namespace Weave.Presentation
             circleSprite = CreateCircleSprite(32);
             runtimeVisualRoot = new GameObject("Prototype Showcase Runtime Visuals");
             characterMarkers.Clear();
+            workRings.Clear();
 
             foreach (var location in locations)
             {
@@ -162,7 +169,12 @@ namespace Weave.Presentation
                 renderer.sortingOrder = 0;
                 locationObject.transform.localScale = new Vector3(1.15f, 0.75f, 1f);
 
-                CreateTextLabel(locationObject.transform, location.DisplayName, new Vector3(0f, 0.78f, 0f), 0.22f, Color.white);
+                CreateTextLabel(
+                    locationObject.transform,
+                    $"{location.DisplayName}\n({location.MapPosition.x:0.#}, {location.MapPosition.y:0.#})",
+                    new Vector3(0f, 0.95f, 0f),
+                    0.18f,
+                    Color.white);
             }
 
             foreach (var character in characters)
@@ -174,10 +186,22 @@ namespace Weave.Presentation
                 renderer.sprite = circleSprite;
                 renderer.color = character.MapColor;
                 renderer.sortingOrder = 2;
-                characterObject.transform.localScale = new Vector3(0.34f, 0.34f, 1f);
+                characterObject.transform.localScale = new Vector3(0.38f, 0.38f, 1f);
+
+                var ring = characterObject.AddComponent<LineRenderer>();
+                ring.positionCount = 0;
+                ring.loop = false;
+                ring.useWorldSpace = true;
+                ring.widthMultiplier = 0.06f;
+                ring.material = Track(new Material(Shader.Find("Sprites/Default")));
+                ring.startColor = new Color(0.98f, 0.92f, 0.60f, 1f);
+                ring.endColor = ring.startColor;
+                ring.sortingOrder = 3;
+                ring.enabled = false;
 
                 CreateTextLabel(characterObject.transform, character.DisplayName, new Vector3(0f, -0.55f, 0f), 0.16f, character.MapColor);
                 characterMarkers[character.CharacterId] = renderer;
+                workRings[character.CharacterId] = ring;
             }
         }
 
@@ -286,7 +310,20 @@ namespace Weave.Presentation
                 new Vector2(0f, 1f),
                 new Vector2(1f, 1f),
                 new Vector2(18f, -102f),
-                new Vector2(-18f, -152f),
+                new Vector2(-18f, -146f),
+                string.Empty,
+                18,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                new Color(0.84f, 0.88f, 0.94f, 1f));
+
+            carryingText = CreateText(
+                "Carrying",
+                infoPanel,
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(18f, -150f),
+                new Vector2(-18f, -224f),
                 string.Empty,
                 18,
                 FontStyle.Normal,
@@ -299,7 +336,7 @@ namespace Weave.Presentation
                 new Vector2(0f, 0f),
                 new Vector2(1f, 0f),
                 new Vector2(18f, 18f),
-                new Vector2(-18f, 76f),
+                new Vector2(-18f, 118f),
                 string.Empty,
                 18,
                 FontStyle.Normal,
@@ -443,10 +480,23 @@ namespace Weave.Presentation
             {
                 var capturedTask = task;
                 var buttonView = CreateButton(taskButtonContainer, task.DisplayName, task.DisplayName, () => AssignTask(capturedTask));
+                var fill = CreatePanel(
+                    $"{task.DisplayName} Travel Fill",
+                    buttonView.Button.transform,
+                    new Vector2(0f, 0f),
+                    new Vector2(0f, 1f),
+                    Vector2.zero,
+                    Vector2.zero,
+                    new Color(0.35f, 0.74f, 0.48f, 0.35f))
+                    .GetComponent<Image>();
+                fill.raycastTarget = false;
+                fill.rectTransform.SetAsFirstSibling();
+                fill.gameObject.SetActive(false);
                 taskButtons.Add(new TaskButtonView
                 {
                     Task = capturedTask,
                     Button = buttonView.Button,
+                    Fill = fill,
                     Label = buttonView.Label
                 });
             }
@@ -635,8 +685,9 @@ namespace Weave.Presentation
 
             var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
             controlledCharacterText.text = $"{controlledCharacter.DisplayName} ({controlledCharacter.Profession})";
-            currentLocationText.text = $"Location: {GetLocationDisplayName(controlledState.CurrentLocationId)}";
-            resourcesText.text = $"Resources: {FormatResources(controlledState)}";
+            currentLocationText.text = $"Current Location: {GetLocationDisplayName(controlledState.CurrentLocationId)}";
+            resourcesText.text = $"Stored: {FormatResources(controlledState.StoredResources)}";
+            carryingText.text = $"Carrying: {FormatResources(controlledState.CarriedResources)}\nCarry Weight: {session.GetCharacterCarriedWeight(controlledCharacter.CharacterId):0.##}";
             worldFlagsText.text = $"World Flags: {FormatWorldFlags()}";
             dayText.text = $"{GetCurrentSeasonName()} — Day {session.RunState.Calendar.DayOfSeason}";
             timeRemainingText.text = $"{FormatDuration(session.RunState.DayTimer.RemainingSeconds)} Remaining";
@@ -647,7 +698,7 @@ namespace Weave.Presentation
 
             var progress = controlledState.IsWorkingOnTask && controlledState.TaskDurationSeconds > 0f
                 ? Mathf.Clamp01(controlledState.TaskElapsedSeconds / controlledState.TaskDurationSeconds)
-                : 0f;
+                : controlledState.IsTravelling ? Mathf.Clamp01(controlledState.TravelProgress) : 0f;
             taskProgressFill.rectTransform.anchorMax = new Vector2(progress, 1f);
             taskProgressFill.rectTransform.offsetMin = Vector2.zero;
             taskProgressFill.rectTransform.offsetMax = Vector2.zero;
@@ -673,10 +724,21 @@ namespace Weave.Presentation
             {
                 var available = availableTaskIds.Contains(taskButton.Task.TaskId) && !controlledState.HasActiveTask;
                 taskButton.Button.interactable = available;
+                var selectedTaskTravelling = controlledState.IsTravelling &&
+                    controlledState.CurrentTaskId == taskButton.Task.TaskId;
+                var travelOrPrep = GetTravelHintForTask(controlledState, taskButton.Task);
                 var suffix = controlledState.HasActiveTask
-                    ? " — Busy"
+                    ? controlledState.CurrentTaskId == taskButton.Task.TaskId
+                        ? $" — {GetTaskStateText(controlledState)}"
+                        : " — Busy"
                     : availableTaskIds.Contains(taskButton.Task.TaskId) ? string.Empty : " — Unavailable";
-                taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s){suffix}";
+                taskButton.Label.text = $"{taskButton.Task.DisplayName} ({Mathf.RoundToInt(taskButton.Task.DurationSeconds)}s) — {travelOrPrep}{suffix}";
+
+                var fillProgress = selectedTaskTravelling ? Mathf.Clamp01(controlledState.TravelProgress) : 0f;
+                taskButton.Fill.rectTransform.anchorMax = new Vector2(fillProgress, 1f);
+                taskButton.Fill.rectTransform.offsetMin = Vector2.zero;
+                taskButton.Fill.rectTransform.offsetMax = Vector2.zero;
+                taskButton.Fill.gameObject.SetActive(fillProgress > 0f);
             }
         }
 
@@ -705,7 +767,7 @@ namespace Weave.Presentation
             else if (result.TaskCompleted)
             {
                 var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
-                statusMessage = $"{GetTaskDisplayName(result.CompletedTaskId)} completed. {controlledCharacter.DisplayName} now has {FormatResources(controlledState)}.";
+                statusMessage = $"{GetTaskDisplayName(result.CompletedTaskId)} completed. Stored: {FormatResources(controlledState.StoredResources)}. Carrying: {FormatResources(controlledState.CarriedResources)}.";
 
                 if (result.CompletedTaskFollowUpEvent != null)
                 {
@@ -742,7 +804,12 @@ namespace Weave.Presentation
                 return;
             }
 
-            statusMessage = $"{controlledCharacter.DisplayName} is travelling to {task.RequiredLocation.DisplayName} for {task.DisplayName}.";
+            var controlledState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+            var isSameLocation = controlledState.TravelOriginLocationId == controlledState.TravelDestinationLocationId;
+            var travelSeconds = session.GetEstimatedTravelDuration(task);
+            statusMessage = isSameLocation
+                ? $"{controlledCharacter.DisplayName} is preparing for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s)."
+                : $"{controlledCharacter.DisplayName} is travelling to {task.RequiredLocation.DisplayName} for {task.DisplayName} ({Mathf.CeilToInt(travelSeconds)}s).";
             RefreshPresentation();
         }
 
@@ -839,6 +906,7 @@ namespace Weave.Presentation
 
                 var position = session.GetCharacterMapPosition(character.CharacterId);
                 marker.transform.position = new Vector3(position.x, position.y, -0.1f);
+                UpdateWorkRing(character.CharacterId, marker.transform.position);
             }
         }
 
@@ -873,16 +941,25 @@ namespace Weave.Presentation
             runtimeDefinitions.Clear();
             var scenario = new ShowcaseScenario();
             scenario.Calendar = Track(CreateCalendar());
+            scenario.Resources = new List<ResourceDefinition>
+            {
+                Track(CreateResource("iron", "Iron Ore", 2f)),
+                Track(CreateResource("wood", "Wood", 1f)),
+                Track(CreateResource("coal", "Coal", 1f)),
+                Track(CreateResource("goodwill", "Goodwill", 0f)),
+                Track(CreateResource("tools", "Tools", 1f)),
+                Track(CreateResource("grain", "Grain", 1f))
+            };
 
-            var villageSquare = Track(CreateLocation("village_square", "Village Square", LocationType.Village, new Vector2(0f, 0f)));
-            var easternMine = Track(CreateLocation("eastern_mine", "Mine", LocationType.Mine, new Vector2(4f, 1.8f)));
-            var pineForest = Track(CreateLocation("pine_forest", "Forest", LocationType.Forest, new Vector2(-3.8f, -1.7f)));
-            var riversideFarm = Track(CreateLocation("riverside_farm", "Farm", LocationType.Farm, new Vector2(-4f, 1.8f)));
-            var oldWorkshop = Track(CreateLocation("old_workshop", "Smithy", LocationType.Workshop, new Vector2(2.6f, -1.7f)));
+            var home = Track(CreateLocation("home", "Home", LocationType.Home, new Vector2(0f, 0f)));
+            var easternMine = Track(CreateLocation("eastern_mine", "Mine", LocationType.Mine, new Vector2(0f, 3f)));
+            var pineForest = Track(CreateLocation("pine_forest", "Forest", LocationType.Forest, new Vector2(-3f, 0f)));
+            var riversideFarm = Track(CreateLocation("riverside_farm", "Farm", LocationType.Farm, new Vector2(0f, -3f)));
+            var oldWorkshop = Track(CreateLocation("old_workshop", "Smithy", LocationType.Workshop, new Vector2(3f, 0f)));
 
             scenario.Locations = new List<LocationDefinition>
             {
-                villageSquare,
+                home,
                 easternMine,
                 pineForest,
                 riversideFarm,
@@ -894,11 +971,12 @@ namespace Weave.Presentation
                 "Mina",
                 ProfessionType.Miner,
                 new Color(0.93f, 0.75f, 0.33f, 1f),
-                villageSquare,
+                home,
                 new List<ResourceAmount>
                 {
                     new ResourceAmount { ResourceId = "iron", Amount = 0 },
                     new ResourceAmount { ResourceId = "wood", Amount = 0 },
+                    new ResourceAmount { ResourceId = "coal", Amount = 0 },
                     new ResourceAmount { ResourceId = "goodwill", Amount = 0 },
                     new ResourceAmount { ResourceId = "tools", Amount = 0 }
                 },
@@ -942,21 +1020,40 @@ namespace Weave.Presentation
                     easternMine,
                     25f,
                     new List<CharacterDefinition> { mina },
-                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "iron", Amount = 2 } })),
+                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "iron", Amount = 5 } },
+                    true,
+                    false,
+                    false)),
                 Track(CreateTask(
                     "gather_timber",
                     "Gather Timber",
                     pineForest,
                     20f,
                     new List<CharacterDefinition>(),
-                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "wood", Amount = 3 } })),
+                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "wood", Amount = 3 } },
+                    true,
+                    false,
+                    false)),
                 Track(CreateTask(
                     "inspect_workshop",
                     "Inspect Workshop",
                     oldWorkshop,
                     18f,
                     new List<CharacterDefinition>(),
-                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "goodwill", Amount = 1 } }))
+                    new List<ResourceAmount> { new ResourceAmount { ResourceId = "goodwill", Amount = 1 } },
+                    false,
+                    false,
+                    false)),
+                Track(CreateTask(
+                    "return_home",
+                    "Return Home",
+                    home,
+                    0f,
+                    new List<CharacterDefinition>(),
+                    new List<ResourceAmount>(),
+                    false,
+                    true,
+                    true))
             };
 
             scenario.PlayerEvent = Track(CreatePlayerEvent(mina));
@@ -986,6 +1083,15 @@ namespace Weave.Presentation
             return location;
         }
 
+        private static ResourceDefinition CreateResource(string id, string displayName, float carryWeightPerUnit)
+        {
+            var resource = ScriptableObject.CreateInstance<ResourceDefinition>();
+            SerializedFieldUtility.SetPrivateField(resource, "resourceId", id);
+            SerializedFieldUtility.SetPrivateField(resource, "displayName", displayName);
+            SerializedFieldUtility.SetPrivateField(resource, "carryWeightPerUnit", carryWeightPerUnit);
+            return resource;
+        }
+
         private static CharacterDefinition CreateCharacter(
             string id,
             string displayName,
@@ -1012,7 +1118,10 @@ namespace Weave.Presentation
             LocationDefinition requiredLocation,
             float durationSeconds,
             List<CharacterDefinition> eligibleCharacters,
-            List<ResourceAmount> actorResourceChanges)
+            List<ResourceAmount> actorResourceChanges,
+            bool rewardsAddedToCarriedResources,
+            bool completeOnArrival,
+            bool unavailableWhenAlreadyAtRequiredLocation)
         {
             var task = ScriptableObject.CreateInstance<TaskDefinition>();
             SerializedFieldUtility.SetPrivateField(task, "taskId", taskId);
@@ -1023,6 +1132,9 @@ namespace Weave.Presentation
             SerializedFieldUtility.SetPrivateField(task, "blockedWorldFlags", new List<string>());
             SerializedFieldUtility.SetPrivateField(task, "durationSeconds", durationSeconds);
             SerializedFieldUtility.SetPrivateField(task, "actorResourceChanges", actorResourceChanges);
+            SerializedFieldUtility.SetPrivateField(task, "rewardsAddedToCarriedResources", rewardsAddedToCarriedResources);
+            SerializedFieldUtility.SetPrivateField(task, "completeOnArrival", completeOnArrival);
+            SerializedFieldUtility.SetPrivateField(task, "unavailableWhenAlreadyAtRequiredLocation", unavailableWhenAlreadyAtRequiredLocation);
             SerializedFieldUtility.SetPrivateField(task, "followUpEvent", null);
             return task;
         }
@@ -1217,7 +1329,9 @@ namespace Weave.Presentation
 
             if (characterState.IsTravelling)
             {
-                return "Travelling";
+                return characterState.TravelOriginLocationId == characterState.TravelDestinationLocationId
+                    ? "Preparing"
+                    : "Travelling";
             }
 
             return "Idle";
@@ -1234,10 +1348,65 @@ namespace Weave.Presentation
             if (characterState.IsTravelling)
             {
                 var destination = GetLocationDisplayName(characterState.TravelDestinationLocationId);
-                return $"En route to {destination}";
+                var remaining = Mathf.CeilToInt(
+                    Mathf.Max(0f, (1f - characterState.TravelProgress) * characterState.TravelDurationSeconds));
+                return characterState.TravelOriginLocationId == characterState.TravelDestinationLocationId
+                    ? $"Preparing ({remaining}s remaining)"
+                    : $"En route to {destination} ({remaining}s)";
             }
 
             return "No active assignment";
+        }
+
+        private string GetTravelHintForTask(CharacterState controlledState, TaskDefinition task)
+        {
+            if (task == null || task.RequiredLocation == null)
+            {
+                return "No location";
+            }
+
+            var travelSeconds = Mathf.CeilToInt(session.GetEstimatedTravelDuration(task));
+            var sameLocation = controlledState.CurrentLocationId == task.RequiredLocation.LocationId;
+            return sameLocation
+                ? $"Here / {travelSeconds}s prep"
+                : $"{travelSeconds}s travel";
+        }
+
+        private void UpdateWorkRing(string characterId, Vector3 center)
+        {
+            if (!workRings.TryGetValue(characterId, out var ring) || session?.RunState == null)
+            {
+                return;
+            }
+
+            var characterState = session.RunState.GetCharacter(characterId);
+
+            if (!characterState.IsWorkingOnTask || characterState.TaskDurationSeconds <= 0f)
+            {
+                ring.enabled = false;
+                ring.positionCount = 0;
+                return;
+            }
+
+            var progress = Mathf.Clamp01(characterState.TaskElapsedSeconds / characterState.TaskDurationSeconds);
+            var segments = Mathf.Max(3, Mathf.CeilToInt(48f * progress));
+            ring.positionCount = segments + 1;
+            ring.enabled = true;
+
+            const float radius = 0.33f;
+            const float startAngle = 90f;
+            var sweep = 360f * progress;
+
+            for (var index = 0; index <= segments; index++)
+            {
+                var t = segments == 0 ? 0f : (float)index / segments;
+                var angleRadians = (startAngle - sweep * t) * Mathf.Deg2Rad;
+                var point = new Vector3(
+                    center.x + Mathf.Cos(angleRadians) * radius,
+                    center.y + Mathf.Sin(angleRadians) * radius,
+                    center.z - 0.01f);
+                ring.SetPosition(index, point);
+            }
         }
 
         private string GetEventTitle(EventDefinition eventDefinition)
@@ -1284,19 +1453,24 @@ namespace Weave.Presentation
             return builder.ToString();
         }
 
-        private static string FormatResources(CharacterState characterState)
+        private string FormatResources(IReadOnlyDictionary<string, int> resourcesById)
         {
             var builder = new StringBuilder();
             var first = true;
 
-            foreach (var resource in characterState.Resources)
+            foreach (var resource in resourcesById)
             {
+                if (resource.Value <= 0)
+                {
+                    continue;
+                }
+
                 if (!first)
                 {
                     builder.Append(", ");
                 }
 
-                builder.Append(resource.Key);
+                builder.Append(session.GetResourceDisplayName(resource.Key));
                 builder.Append(':');
                 builder.Append(' ');
                 builder.Append(resource.Value);
@@ -1477,6 +1651,8 @@ namespace Weave.Presentation
         {
             switch (locationType)
             {
+                case LocationType.Home:
+                    return new Color(0.31f, 0.44f, 0.66f, 1f);
                 case LocationType.Mine:
                     return new Color(0.43f, 0.50f, 0.61f, 1f);
                 case LocationType.Forest:
