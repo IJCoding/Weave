@@ -879,15 +879,9 @@ namespace Weave.Presentation
             }
         }
 
-        private void HandleSimulationLogEntryAdded(SimulationLogEntry entry)
+        private void HandleSimulationLogEntryAdded(SimulationLogEntry _)
         {
-            activityLogEntries.Add(entry);
-            while (activityLogEntries.Count > ActivityHistoryLimit)
-            {
-                activityLogEntries.RemoveAt(0);
-            }
-
-            RefreshActivityConsoleText();
+            RebuildActivityConsoleFromSession();
         }
 
         private void RebuildActivityConsoleFromSession()
