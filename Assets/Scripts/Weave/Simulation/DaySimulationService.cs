@@ -189,6 +189,15 @@ namespace Weave.Simulation
             }
 
             AdvanceTravel(characterState, step);
+
+            if (characterState.TravelProgress >= 1f)
+            {
+                characterState.TravelProgress = 0f;
+                characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
+                characterState.TravelOriginLocationId = characterState.CurrentLocationId;
+                characterState.CurrentTaskPhase = TaskPhase.Working;
+            }
+
             return true;
         }
 
@@ -204,7 +213,8 @@ namespace Weave.Simulation
             if (actorState.IsTravelling ||
                 !actorState.IsWorkingOnTask ||
                 actorState.CurrentLocationId != task.RequiredLocation.LocationId ||
-                actorState.CurrentTaskId != task.TaskId)
+                actorState.CurrentTaskId != task.TaskId ||
+                actorState.TaskElapsedSeconds < actorState.TaskDurationSeconds)
             {
                 return false;
             }
