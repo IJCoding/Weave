@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using System.Text;
 using UnityEngine;
 using Weave.Data;
@@ -83,13 +82,13 @@ namespace Weave.Presentation
         {
             if (runtimeVisualRoot != null)
             {
-                DestroyImmediate(runtimeVisualRoot);
+                DestroyObject(runtimeVisualRoot);
             }
 
             if (markerSprite != null)
             {
-                DestroyImmediate(markerSprite.texture);
-                DestroyImmediate(markerSprite);
+                DestroyObject(markerSprite.texture);
+                DestroyObject(markerSprite);
             }
         }
 
@@ -147,8 +146,10 @@ namespace Weave.Presentation
                     session.TickCharacterTravel(
                         controlledCharacter.CharacterId,
                         Mathf.Max(1f - controlledState.TravelProgress, 0f));
-                    statusMessage =
-                        $"{controlledCharacter.DisplayName} arrived at {GetLocationDisplayName(session.RunState.GetCharacter(controlledCharacter.CharacterId).CurrentLocationId)}.";
+                    var updatedState = session.RunState.GetCharacter(controlledCharacter.CharacterId);
+                    statusMessage = updatedState.IsTravelling
+                        ? $"{controlledCharacter.DisplayName} advanced toward {GetLocationDisplayName(updatedState.TravelDestinationLocationId)}."
+                        : $"{controlledCharacter.DisplayName} arrived at {GetLocationDisplayName(updatedState.CurrentLocationId)}.";
                 }
             }
             else if (activeTask != null && controlledState.CurrentTaskId == activeTask.TaskId)
@@ -396,19 +397,19 @@ namespace Weave.Presentation
         private static GameCalendarDefinition CreateCalendar()
         {
             var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
-            SetField(calendar, "startingYear", 1);
-            SetField(calendar, "seasons", new List<string> { "Spring", "Summer", "Autumn", "Winter" });
-            SetField(calendar, "daysPerSeason", 5);
+            SerializedFieldUtility.SetPrivateField(calendar, "startingYear", 1);
+            SerializedFieldUtility.SetPrivateField(calendar, "seasons", new List<string> { "Spring", "Summer", "Autumn", "Winter" });
+            SerializedFieldUtility.SetPrivateField(calendar, "daysPerSeason", 5);
             return calendar;
         }
 
         private static LocationDefinition CreateLocation(string id, string displayName, LocationType locationType, Vector2 mapPosition)
         {
             var location = ScriptableObject.CreateInstance<LocationDefinition>();
-            SetField(location, "locationId", id);
-            SetField(location, "displayName", displayName);
-            SetField(location, "locationType", locationType);
-            SetField(location, "mapPosition", mapPosition);
+            SerializedFieldUtility.SetPrivateField(location, "locationId", id);
+            SerializedFieldUtility.SetPrivateField(location, "displayName", displayName);
+            SerializedFieldUtility.SetPrivateField(location, "locationType", locationType);
+            SerializedFieldUtility.SetPrivateField(location, "mapPosition", mapPosition);
             return location;
         }
 
@@ -422,13 +423,13 @@ namespace Weave.Presentation
             List<CanonDecisionDefault> developerCanon)
         {
             var character = ScriptableObject.CreateInstance<CharacterDefinition>();
-            SetField(character, "characterId", id);
-            SetField(character, "displayName", displayName);
-            SetField(character, "profession", profession);
-            SetField(character, "mapColor", mapColor);
-            SetField(character, "homeLocation", homeLocation);
-            SetField(character, "startingResources", startingResources);
-            SetField(character, "developerCanon", developerCanon);
+            SerializedFieldUtility.SetPrivateField(character, "characterId", id);
+            SerializedFieldUtility.SetPrivateField(character, "displayName", displayName);
+            SerializedFieldUtility.SetPrivateField(character, "profession", profession);
+            SerializedFieldUtility.SetPrivateField(character, "mapColor", mapColor);
+            SerializedFieldUtility.SetPrivateField(character, "homeLocation", homeLocation);
+            SerializedFieldUtility.SetPrivateField(character, "startingResources", startingResources);
+            SerializedFieldUtility.SetPrivateField(character, "developerCanon", developerCanon);
             return character;
         }
 
@@ -440,26 +441,26 @@ namespace Weave.Presentation
             List<ResourceAmount> actorResourceChanges)
         {
             var task = ScriptableObject.CreateInstance<TaskDefinition>();
-            SetField(task, "taskId", taskId);
-            SetField(task, "displayName", displayName);
-            SetField(task, "requiredLocation", requiredLocation);
-            SetField(task, "eligibleCharacters", eligibleCharacters);
-            SetField(task, "requiredWorldFlags", new List<string>());
-            SetField(task, "blockedWorldFlags", new List<string>());
-            SetField(task, "actorResourceChanges", actorResourceChanges);
-            SetField(task, "followUpEvent", null);
+            SerializedFieldUtility.SetPrivateField(task, "taskId", taskId);
+            SerializedFieldUtility.SetPrivateField(task, "displayName", displayName);
+            SerializedFieldUtility.SetPrivateField(task, "requiredLocation", requiredLocation);
+            SerializedFieldUtility.SetPrivateField(task, "eligibleCharacters", eligibleCharacters);
+            SerializedFieldUtility.SetPrivateField(task, "requiredWorldFlags", new List<string>());
+            SerializedFieldUtility.SetPrivateField(task, "blockedWorldFlags", new List<string>());
+            SerializedFieldUtility.SetPrivateField(task, "actorResourceChanges", actorResourceChanges);
+            SerializedFieldUtility.SetPrivateField(task, "followUpEvent", null);
             return task;
         }
 
         private static EventDefinition CreatePlayerEvent(CharacterDefinition mina)
         {
             var eventDefinition = ScriptableObject.CreateInstance<EventDefinition>();
-            SetField(eventDefinition, "eventId", "village_request");
-            SetField(eventDefinition, "prompt", "Rowan asks Mina to back his workshop expansion plan.");
-            SetField(eventDefinition, "decisionMaker", mina);
-            SetField(eventDefinition, "decisionKey", "MINA_REQUEST");
-            SetField(eventDefinition, "triggerConditions", new List<WorldFlagRequirement>());
-            SetField(
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "eventId", "village_request");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "prompt", "Rowan asks Mina to back his workshop expansion plan.");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionMaker", mina);
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionKey", "MINA_REQUEST");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "triggerConditions", new List<WorldFlagRequirement>());
+            SerializedFieldUtility.SetPrivateField(
                 eventDefinition,
                 "options",
                 new List<DecisionOptionDefinition>
@@ -503,12 +504,12 @@ namespace Weave.Presentation
         private static EventDefinition CreateNpcEvent(CharacterDefinition mina, CharacterDefinition rowan)
         {
             var eventDefinition = ScriptableObject.CreateInstance<EventDefinition>();
-            SetField(eventDefinition, "eventId", "rowan_response");
-            SetField(eventDefinition, "prompt", "Rowan decides whether to share workshop supplies with the village.");
-            SetField(eventDefinition, "decisionMaker", rowan);
-            SetField(eventDefinition, "decisionKey", RowanDecisionKey);
-            SetField(eventDefinition, "triggerConditions", new List<WorldFlagRequirement>());
-            SetField(
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "eventId", "rowan_response");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "prompt", "Rowan decides whether to share workshop supplies with the village.");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionMaker", rowan);
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionKey", RowanDecisionKey);
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "triggerConditions", new List<WorldFlagRequirement>());
+            SerializedFieldUtility.SetPrivateField(
                 eventDefinition,
                 "options",
                 new List<DecisionOptionDefinition>
@@ -565,9 +566,9 @@ namespace Weave.Presentation
             List<OutcomeVariantDefinition> outcomes)
         {
             var option = new DecisionOptionDefinition();
-            SetField(option, "optionId", optionId);
-            SetField(option, "label", label);
-            SetField(option, "outcomes", outcomes);
+            SerializedFieldUtility.SetPrivateField(option, "optionId", optionId);
+            SerializedFieldUtility.SetPrivateField(option, "label", label);
+            SerializedFieldUtility.SetPrivateField(option, "outcomes", outcomes);
             return option;
         }
 
@@ -578,10 +579,10 @@ namespace Weave.Presentation
             List<CharacterResourceDelta> resourceChanges)
         {
             var outcome = new OutcomeVariantDefinition();
-            SetField(outcome, "summaryText", summaryText);
-            SetField(outcome, "conditions", conditions);
-            SetField(outcome, "worldFlagMutations", worldFlagMutations);
-            SetField(outcome, "resourceChanges", resourceChanges);
+            SerializedFieldUtility.SetPrivateField(outcome, "summaryText", summaryText);
+            SerializedFieldUtility.SetPrivateField(outcome, "conditions", conditions);
+            SerializedFieldUtility.SetPrivateField(outcome, "worldFlagMutations", worldFlagMutations);
+            SerializedFieldUtility.SetPrivateField(outcome, "resourceChanges", resourceChanges);
             return outcome;
         }
 
@@ -706,16 +707,20 @@ namespace Weave.Presentation
             }
         }
 
-        private static void SetField(object target, string fieldName, object value)
+        private static void DestroyObject(UnityEngine.Object target)
         {
-            var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field == null)
+            if (target == null)
             {
-                throw new InvalidOperationException(
-                    $"Could not find serialized field '{fieldName}' on {target.GetType().Name}.");
+                return;
             }
 
-            field.SetValue(target, value);
+            if (Application.isPlaying)
+            {
+                Destroy(target);
+                return;
+            }
+
+            DestroyImmediate(target);
         }
     }
 }
