@@ -22,6 +22,24 @@ namespace Weave.Simulation
         public IReadOnlyList<LocationDefinition> Locations => locations;
         public IReadOnlyList<CharacterDefinition> Characters => characters;
 
+        public void Configure(
+            GameCalendarDefinition configuredCalendar,
+            IEnumerable<LocationDefinition> configuredLocations,
+            IEnumerable<CharacterDefinition> configuredCharacters,
+            IEnumerable<TaskDefinition> configuredTasks)
+        {
+            calendarDefinition = configuredCalendar;
+            locations = configuredLocations != null
+                ? new List<LocationDefinition>(configuredLocations)
+                : new List<LocationDefinition>();
+            characters = configuredCharacters != null
+                ? new List<CharacterDefinition>(configuredCharacters)
+                : new List<CharacterDefinition>();
+            tasks = configuredTasks != null
+                ? new List<TaskDefinition>(configuredTasks)
+                : new List<TaskDefinition>();
+        }
+
         public void StartRun(CharacterDefinition controlledCharacter)
         {
             runState = simulation.CreateInitialState(calendarDefinition, locations, characters, controlledCharacter);
