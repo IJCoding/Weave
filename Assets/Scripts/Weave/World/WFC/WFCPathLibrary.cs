@@ -261,7 +261,7 @@ namespace Weave.World.WFC
             var parts = loweredName.Split(separators, StringSplitOptions.RemoveEmptyEntries);
             foreach (var part in parts)
             {
-                if (part == token || part.Contains(token))
+                if (part == token)
                 {
                     return true;
                 }

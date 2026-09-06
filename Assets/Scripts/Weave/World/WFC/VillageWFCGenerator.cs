@@ -124,6 +124,7 @@ namespace Weave.World.WFC
             }
 
             Debug.LogError($"VillageWFCGenerator: failed to generate map after {maxRetries} retries (seed {currentSeed}).", this);
+            ClearVillage();
         }
 
         [ContextMenu("Clear Village")]
