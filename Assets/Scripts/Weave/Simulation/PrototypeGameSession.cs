@@ -84,6 +84,11 @@ namespace Weave.Simulation
 
         public Vector2 GetCharacterMapPosition(string characterId)
         {
+            if (runState == null)
+            {
+                return Vector2.zero;
+            }
+
             var characterState = runState.GetCharacter(characterId);
             var origin = GetLocationPosition(characterState.TravelOriginLocationId);
             var destination = GetLocationPosition(characterState.TravelDestinationLocationId);

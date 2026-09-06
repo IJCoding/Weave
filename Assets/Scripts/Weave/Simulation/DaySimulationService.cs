@@ -117,6 +117,11 @@ namespace Weave.Simulation
 
         public TravelCommand StartTravel(RunState runState, CharacterDefinition character, TaskDefinition task)
         {
+            if (!IsTaskAvailable(character, task, runState))
+            {
+                return default;
+            }
+
             var characterState = runState.GetCharacter(character.CharacterId);
             characterState.TravelOriginLocationId = characterState.CurrentLocationId;
             characterState.TravelDestinationLocationId = task.RequiredLocation.LocationId;
@@ -154,6 +159,14 @@ namespace Weave.Simulation
         public void ResolveTask(RunState runState, CharacterDefinition actor, TaskDefinition task)
         {
             var actorState = runState.GetCharacter(actor.CharacterId);
+
+            if (task == null ||
+                task.RequiredLocation == null ||
+                actorState.IsTravelling ||
+                actorState.CurrentLocationId != task.RequiredLocation.LocationId)
+            {
+                return;
+            }
 
             foreach (var change in task.ActorResourceChanges)
             {
@@ -217,6 +230,14 @@ namespace Weave.Simulation
 
         public void AdvanceDay(RunState runState, GameCalendarDefinition calendar)
         {
+            foreach (var characterState in runState.Characters.Values)
+            {
+                characterState.CurrentTaskId = string.Empty;
+                characterState.TravelProgress = 0f;
+                characterState.TravelOriginLocationId = characterState.CurrentLocationId;
+                characterState.TravelDestinationLocationId = characterState.CurrentLocationId;
+            }
+
             runState.Calendar.Advance(calendar);
         }
 
