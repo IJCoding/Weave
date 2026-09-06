@@ -40,12 +40,9 @@ namespace Weave.Tests.EditMode
 
             service.AdvanceDay(runState, calendar);
 
-            Assert.Multiple(() =>
-            {
-                Assert.That(runState.Calendar.DayOfSeason, Is.EqualTo(2));
-                AssertReset(minerState);
-                AssertReset(lumberjackState);
-            });
+            Assert.That(runState.Calendar.DayOfSeason, Is.EqualTo(2));
+            AssertReset(minerState);
+            AssertReset(lumberjackState);
         }
 
         private static CharacterDefinition CreateCharacter(string id, string displayName, LocationDefinition home)
