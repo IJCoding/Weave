@@ -40,7 +40,8 @@ namespace Weave.Simulation
             string completedTaskId,
             bool taskInterrupted,
             string interruptedTaskId,
-            EventDefinition completedTaskFollowUpEvent)
+            EventDefinition completedTaskFollowUpEvent,
+            IReadOnlyList<SimulationLogSignal> logSignals)
         {
             StateChanged = stateChanged;
             DayAdvanced = dayAdvanced;
@@ -49,6 +50,7 @@ namespace Weave.Simulation
             TaskInterrupted = taskInterrupted;
             InterruptedTaskId = interruptedTaskId;
             CompletedTaskFollowUpEvent = completedTaskFollowUpEvent;
+            LogSignals = logSignals ?? new List<SimulationLogSignal>();
         }
 
         public bool StateChanged { get; }
@@ -58,6 +60,7 @@ namespace Weave.Simulation
         public bool TaskInterrupted { get; }
         public string InterruptedTaskId { get; }
         public EventDefinition CompletedTaskFollowUpEvent { get; }
+        public IReadOnlyList<SimulationLogSignal> LogSignals { get; }
     }
 
     public sealed class DaySimulationService
@@ -297,6 +300,7 @@ namespace Weave.Simulation
             EventDefinition followUpEvent = null;
             var remainingSeconds = simulationSeconds;
             var controlledState = runState.GetCharacter(controlledCharacter.CharacterId);
+            var logSignals = new List<SimulationLogSignal>();
 
             while (remainingSeconds > 0f)
             {
@@ -339,12 +343,49 @@ namespace Weave.Simulation
                     controlledState.TravelProgress >= 1f)
                 {
                     var wasTravelOnly = controlledState.CompleteTaskOnArrival;
-                    CompleteTravelPhase(controlledState);
+                    var travelCompletion = CompleteTravelPhase(controlledState);
+                    var destinationName = taskDefinition?.RequiredLocation != null
+                        ? taskDefinition.RequiredLocation.DisplayName
+                        : travelCompletion.DestinationLocationName;
+
+                    if (travelCompletion.OriginLocationId == travelCompletion.DestinationLocationId)
+                    {
+                        logSignals.Add(new SimulationLogSignal(
+                            SimulationLogCategory.Travel,
+                            controlledCharacter.CharacterId,
+                            $"{controlledCharacter.DisplayName} completed preparation at {destinationName}."));
+                    }
+                    else
+                    {
+                        logSignals.Add(new SimulationLogSignal(
+                            SimulationLogCategory.Travel,
+                            controlledCharacter.CharacterId,
+                            $"{controlledCharacter.DisplayName} arrived at {destinationName}."));
+                    }
+
+                    if (!string.IsNullOrEmpty(travelCompletion.DepositedSummary))
+                    {
+                        logSignals.Add(new SimulationLogSignal(
+                            SimulationLogCategory.Resource,
+                            controlledCharacter.CharacterId,
+                            $"{controlledCharacter.DisplayName} deposited {travelCompletion.DepositedSummary}."));
+                    }
 
                     if (wasTravelOnly && taskDefinition != null)
                     {
                         taskCompleted = true;
                         completedTaskId = taskDefinition.TaskId;
+                        logSignals.Add(new SimulationLogSignal(
+                            SimulationLogCategory.Work,
+                            controlledCharacter.CharacterId,
+                            $"{controlledCharacter.DisplayName} completed {taskDefinition.DisplayName}."));
+                    }
+                    else if (!wasTravelOnly && taskDefinition != null)
+                    {
+                        logSignals.Add(new SimulationLogSignal(
+                            SimulationLogCategory.Work,
+                            controlledCharacter.CharacterId,
+                            $"{controlledCharacter.DisplayName} began {taskDefinition.DisplayName}."));
                     }
 
                     stateChanged = true;
@@ -360,6 +401,11 @@ namespace Weave.Simulation
                         taskCompleted = true;
                         completedTaskId = taskDefinition.TaskId;
                         followUpEvent = taskDefinition.FollowUpEvent;
+                        logSignals.Add(new SimulationLogSignal(
+                            SimulationLogCategory.Work,
+                            controlledCharacter.CharacterId,
+                            $"{controlledCharacter.DisplayName} completed {taskDefinition.DisplayName}."));
+                        LogResourceChanges(logSignals, controlledCharacter, taskDefinition);
                         stateChanged = true;
                     }
 
@@ -368,15 +414,28 @@ namespace Weave.Simulation
 
                 if (runState.DayTimer.RemainingSeconds <= 0f)
                 {
+                    logSignals.Add(new SimulationLogSignal(
+                        SimulationLogCategory.System,
+                        controlledCharacter.CharacterId,
+                        $"Day {runState.Calendar.DayOfSeason} ended."));
+
                     if (controlledState.IsWorkingOnTask && !string.IsNullOrEmpty(controlledState.CurrentTaskId))
                     {
                         taskInterrupted = true;
                         interruptedTaskId = controlledState.CurrentTaskId;
+                        logSignals.Add(new SimulationLogSignal(
+                            SimulationLogCategory.System,
+                            controlledCharacter.CharacterId,
+                            $"{GetTaskById(interruptedTaskId, tasks)?.DisplayName ?? interruptedTaskId} was interrupted when the day ended."));
                     }
 
                     AdvanceDay(runState, calendar);
                     dayAdvanced = true;
                     stateChanged = true;
+                    logSignals.Add(new SimulationLogSignal(
+                        SimulationLogCategory.System,
+                        controlledCharacter.CharacterId,
+                        $"Day {runState.Calendar.DayOfSeason} began."));
                     continue;
                 }
 
@@ -390,7 +449,8 @@ namespace Weave.Simulation
                 completedTaskId,
                 taskInterrupted,
                 interruptedTaskId,
-                followUpEvent);
+                followUpEvent,
+                logSignals);
         }
 
         public EventResolution ResolveNpcEvent(
@@ -632,32 +692,42 @@ namespace Weave.Simulation
             return lookup;
         }
 
-        private static void CompleteTravelPhase(CharacterState characterState)
+        private static TravelPhaseCompletion CompleteTravelPhase(CharacterState characterState)
         {
             var originLocationId = characterState.TravelOriginLocationId;
+            var destinationLocationId = characterState.TravelDestinationLocationId;
             characterState.TravelProgress = 0f;
             characterState.CurrentLocationId = characterState.TravelDestinationLocationId;
             characterState.TravelOriginLocationId = characterState.CurrentLocationId;
 
-            DepositCarriedResourcesIfArrivedHomeFromAway(characterState, originLocationId);
+            var depositedSummary = DepositCarriedResourcesIfArrivedHomeFromAway(characterState, originLocationId);
 
             if (characterState.CompleteTaskOnArrival)
             {
                 ClearTaskState(characterState);
-                return;
+                return new TravelPhaseCompletion(
+                    originLocationId,
+                    destinationLocationId,
+                    depositedSummary);
             }
 
             characterState.CurrentTaskPhase = TaskPhase.Working;
+            return new TravelPhaseCompletion(
+                originLocationId,
+                destinationLocationId,
+                depositedSummary);
         }
 
-        private static void DepositCarriedResourcesIfArrivedHomeFromAway(CharacterState characterState, string originLocationId)
+        private static string DepositCarriedResourcesIfArrivedHomeFromAway(CharacterState characterState, string originLocationId)
         {
             if (string.IsNullOrEmpty(characterState.HomeLocationId) ||
                 characterState.CurrentLocationId != characterState.HomeLocationId ||
                 originLocationId == characterState.HomeLocationId)
             {
-                return;
+                return string.Empty;
             }
+
+            var summaryParts = new List<string>();
 
             foreach (var carriedResource in characterState.CarriedResources)
             {
@@ -667,9 +737,56 @@ namespace Weave.Simulation
                 }
 
                 characterState.ChangeStoredResource(carriedResource.Key, carriedResource.Value);
+                summaryParts.Add($"{carriedResource.Key} +{carriedResource.Value}");
             }
 
             characterState.CarriedResources.Clear();
+            return BuildResourceSummary(summaryParts);
+        }
+
+        private static void LogResourceChanges(
+            List<SimulationLogSignal> logSignals,
+            CharacterDefinition character,
+            TaskDefinition taskDefinition)
+        {
+            foreach (var change in taskDefinition.ActorResourceChanges)
+            {
+                if (change.Amount <= 0)
+                {
+                    continue;
+                }
+
+                var verb = taskDefinition.RewardsAddedToCarriedResources ? "gathered" : "stored";
+                logSignals.Add(new SimulationLogSignal(
+                    SimulationLogCategory.Resource,
+                    character.CharacterId,
+                    $"{character.DisplayName} {verb} {change.Amount} {change.ResourceId}."));
+            }
+        }
+
+        private static string BuildResourceSummary(List<string> summaryParts)
+        {
+            if (summaryParts.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            return string.Join(", ", summaryParts);
+        }
+
+        private readonly struct TravelPhaseCompletion
+        {
+            public TravelPhaseCompletion(string originLocationId, string destinationLocationId, string depositedSummary)
+            {
+                OriginLocationId = originLocationId;
+                DestinationLocationId = destinationLocationId;
+                DepositedSummary = depositedSummary;
+            }
+
+            public string OriginLocationId { get; }
+            public string DestinationLocationId { get; }
+            public string DepositedSummary { get; }
+            public string DestinationLocationName => string.IsNullOrEmpty(DestinationLocationId) ? "destination" : DestinationLocationId;
         }
     }
 }

@@ -84,6 +84,7 @@ namespace Weave.Simulation
 
     public sealed class PrototypeGameSession : MonoBehaviour
     {
+        private const int MaxSimulationLogEntries = 50;
         [SerializeField] private GameCalendarDefinition calendarDefinition;
         [SerializeField] private List<LocationDefinition> locations = new List<LocationDefinition>();
         [SerializeField] private List<CharacterDefinition> characters = new List<CharacterDefinition>();
@@ -94,12 +95,14 @@ namespace Weave.Simulation
         [SerializeField] private float carryPenaltyPerWeightUnit = 0.05f;
 
         private readonly DaySimulationService simulation = new DaySimulationService(new CanonResolver());
+        private readonly List<SimulationLogEntry> simulationLogEntries = new List<SimulationLogEntry>();
         private RunState runState;
         private SimulationSpeedMode selectedSpeedMode = SimulationSpeedMode.Normal;
         private int pauseOverrideDepth;
 
         public event Action StateChanged;
         public event Action<SimulationAdvanceResult> SimulationAdvanced;
+        public event Action<SimulationLogEntry> SimulationLogEntryAdded;
 
         public RunState RunState => runState;
         public IReadOnlyList<LocationDefinition> Locations => locations;
@@ -112,6 +115,7 @@ namespace Weave.Simulation
         public SimulationSpeedMode SelectedSpeedMode => selectedSpeedMode;
         public SimulationSpeedMode EffectiveSpeedMode =>
             pauseOverrideDepth > 0 ? SimulationSpeedMode.Paused : selectedSpeedMode;
+        public IReadOnlyList<SimulationLogEntry> SimulationLogEntries => simulationLogEntries;
 
         public void Configure(
             GameCalendarDefinition configuredCalendar,
@@ -138,8 +142,13 @@ namespace Weave.Simulation
         public void StartRun(CharacterDefinition controlledCharacter)
         {
             runState = simulation.CreateInitialState(calendarDefinition, locations, characters, controlledCharacter);
+            simulationLogEntries.Clear();
             pauseOverrideDepth = 0;
             selectedSpeedMode = SimulationSpeedMode.Normal;
+            AppendLog(
+                SimulationLogCategory.System,
+                controlledCharacter != null ? controlledCharacter.CharacterId : string.Empty,
+                $"Day {runState.Calendar.DayOfSeason} began.");
             NotifyStateChanged();
         }
 
@@ -276,11 +285,48 @@ namespace Weave.Simulation
                 return default;
             }
 
+            var character = GetControlledCharacter();
+            var characterState = character != null ? runState.GetCharacter(character.CharacterId) : null;
             var command = simulation.StartTravel(
                 runState,
-                GetControlledCharacter(),
+                character,
                 task,
                 GetEstimatedTravelDuration(task));
+
+            if (!string.IsNullOrEmpty(command.CharacterId) &&
+                task != null &&
+                task.RequiredLocation != null &&
+                characterState != null &&
+                character != null)
+            {
+                var isReturnHome = task.CompleteOnArrival &&
+                    task.RequiredLocation.LocationId == characterState.HomeLocationId &&
+                    characterState.CurrentLocationId != characterState.HomeLocationId;
+                var startedAtDestination = command.OriginLocationId == command.DestinationLocationId;
+
+                if (isReturnHome)
+                {
+                    AppendLog(
+                        SimulationLogCategory.Travel,
+                        character.CharacterId,
+                        $"{character.DisplayName} left {GetLocationDisplayName(command.OriginLocationId)} for {GetLocationDisplayName(command.DestinationLocationId)}.");
+                }
+                else if (startedAtDestination)
+                {
+                    AppendLog(
+                        SimulationLogCategory.Travel,
+                        character.CharacterId,
+                        $"{character.DisplayName} began preparing for {task.DisplayName}.");
+                }
+                else
+                {
+                    AppendLog(
+                        SimulationLogCategory.Travel,
+                        character.CharacterId,
+                        $"{character.DisplayName} left {GetLocationDisplayName(command.OriginLocationId)} for {task.RequiredLocation.DisplayName}.");
+                }
+            }
+
             NotifyStateChanged();
             return command;
         }
@@ -334,6 +380,7 @@ namespace Weave.Simulation
 
             if (result.StateChanged)
             {
+                AppendSignals(result.LogSignals);
                 NotifyStateChanged();
                 SimulationAdvanced?.Invoke(result);
             }
@@ -349,6 +396,21 @@ namespace Weave.Simulation
             }
 
             var resolution = simulation.ResolveEvent(runState, eventDefinition, selectedOptionId);
+            if (eventDefinition != null)
+            {
+                var actor = eventDefinition.DecisionMaker != null ? eventDefinition.DecisionMaker.CharacterId : string.Empty;
+                var title = string.IsNullOrEmpty(eventDefinition.Title) ? eventDefinition.EventId : eventDefinition.Title;
+                AppendLog(
+                    SimulationLogCategory.Decision,
+                    actor,
+                    $"Decision made for {title}: {selectedOptionId}.");
+
+                if (!string.IsNullOrEmpty(resolution.SummaryText))
+                {
+                    AppendLog(SimulationLogCategory.Event, actor, resolution.SummaryText);
+                }
+            }
+
             NotifyStateChanged();
             return resolution;
         }
@@ -361,6 +423,21 @@ namespace Weave.Simulation
             }
 
             var resolution = simulation.ResolveNpcEvent(runState, playerCanon, eventDefinition);
+            if (eventDefinition != null)
+            {
+                var actor = eventDefinition.DecisionMaker != null ? eventDefinition.DecisionMaker.CharacterId : string.Empty;
+                var title = string.IsNullOrEmpty(eventDefinition.Title) ? eventDefinition.EventId : eventDefinition.Title;
+                AppendLog(
+                    SimulationLogCategory.Decision,
+                    actor,
+                    $"NPC decision resolved for {title}.");
+
+                if (!string.IsNullOrEmpty(resolution.SummaryText))
+                {
+                    AppendLog(SimulationLogCategory.Event, actor, resolution.SummaryText);
+                }
+            }
+
             NotifyStateChanged();
             return resolution;
         }
@@ -372,8 +449,21 @@ namespace Weave.Simulation
                 return;
             }
 
+            AppendLog(
+                SimulationLogCategory.System,
+                runState.ControlledCharacterId,
+                $"Day {runState.Calendar.DayOfSeason} ended.");
             simulation.AdvanceDay(runState, calendarDefinition);
+            AppendLog(
+                SimulationLogCategory.System,
+                runState.ControlledCharacterId,
+                $"Day {runState.Calendar.DayOfSeason} began.");
             NotifyStateChanged();
+        }
+
+        public void PublishSimulationLog(SimulationLogCategory category, string characterId, string message)
+        {
+            AppendLog(category, characterId, message);
         }
 
         public Vector2 GetCharacterMapPosition(string characterId)
@@ -594,6 +684,63 @@ namespace Weave.Simulation
         private void NotifyStateChanged()
         {
             StateChanged?.Invoke();
+        }
+
+        private void AppendSignals(IReadOnlyList<SimulationLogSignal> signals)
+        {
+            if (signals == null)
+            {
+                return;
+            }
+
+            foreach (var signal in signals)
+            {
+                AppendLog(signal.Category, signal.CharacterId, signal.Message);
+            }
+        }
+
+        private void AppendLog(SimulationLogCategory category, string characterId, string message)
+        {
+            if (runState == null || string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            var dayElapsedSeconds = runState.DayTimer != null
+                ? Mathf.Max(0f, runState.DayTimer.DurationSeconds - runState.DayTimer.RemainingSeconds)
+                : 0f;
+            var entry = new SimulationLogEntry(
+                runState.Calendar != null ? runState.Calendar.DayOfSeason : 1,
+                dayElapsedSeconds,
+                category,
+                characterId,
+                message);
+            simulationLogEntries.Add(entry);
+
+            while (simulationLogEntries.Count > MaxSimulationLogEntries)
+            {
+                simulationLogEntries.RemoveAt(0);
+            }
+
+            SimulationLogEntryAdded?.Invoke(entry);
+        }
+
+        private string GetLocationDisplayName(string locationId)
+        {
+            if (string.IsNullOrEmpty(locationId))
+            {
+                return "Unknown";
+            }
+
+            foreach (var location in locations)
+            {
+                if (location != null && location.LocationId == locationId)
+                {
+                    return string.IsNullOrEmpty(location.DisplayName) ? locationId : location.DisplayName;
+                }
+            }
+
+            return locationId;
         }
     }
 }
