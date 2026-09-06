@@ -204,6 +204,59 @@ namespace Weave.Tests.EditMode
         }
 
         [Test]
+        public void LogDecisionRequested_RecordsEachOccurrenceAndUsesCurrentDay()
+        {
+            var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
+            SerializedFieldUtility.SetPrivateField(calendar, "startingYear", 1);
+            SerializedFieldUtility.SetPrivateField(calendar, "seasons", new List<string> { "Spring" });
+            SerializedFieldUtility.SetPrivateField(calendar, "daysPerSeason", 3);
+            SerializedFieldUtility.SetPrivateField(calendar, "dayDurationSeconds", 300f);
+            SerializedFieldUtility.SetPrivateField(calendar, "normalSimulationSpeed", 1f);
+            SerializedFieldUtility.SetPrivateField(calendar, "fastForwardSimulationSpeed", 3f);
+
+            var home = ScriptableObject.CreateInstance<LocationDefinition>();
+            SerializedFieldUtility.SetPrivateField(home, "locationId", "home");
+            SerializedFieldUtility.SetPrivateField(home, "displayName", "Home");
+
+            var miner = CreateCharacter("miner", "Miner", home);
+
+            var eventDefinition = ScriptableObject.CreateInstance<EventDefinition>();
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "eventId", "request_help");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "title", "Need Help");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "sourceLabel", "Alice");
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "decisionMaker", null);
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "options", new List<DecisionOptionDefinition>());
+            SerializedFieldUtility.SetPrivateField(eventDefinition, "triggerConditions", new List<WorldFlagRequirement>());
+
+            var gameObject = new GameObject("Decision Log Session");
+            try
+            {
+                var session = gameObject.AddComponent<PrototypeGameSession>();
+                session.Configure(calendar, new[] { home }, new[] { miner }, new TaskDefinition[0], new ResourceDefinition[0]);
+                session.StartRun(miner);
+
+                session.LogDecisionRequested(eventDefinition);
+                session.LogDecisionRequested(eventDefinition);
+
+                Assert.That(session.SimulationLogEntries, Has.Count.EqualTo(3));
+                Assert.That(session.SimulationLogEntries[1].Category, Is.EqualTo(SimulationLogCategory.Event));
+                Assert.That(session.SimulationLogEntries[1].CharacterId, Is.EqualTo("miner"));
+                Assert.That(session.SimulationLogEntries[1].DayOfSeason, Is.EqualTo(1));
+                Assert.That(session.SimulationLogEntries[2].DayOfSeason, Is.EqualTo(1));
+
+                session.AdvanceDay();
+                session.LogDecisionRequested(eventDefinition);
+
+                Assert.That(session.SimulationLogEntries[3].DayOfSeason, Is.EqualTo(2));
+                Assert.That(session.SimulationLogEntries[3].Message, Does.Contain("Need Help"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(gameObject);
+            }
+        }
+
+        [Test]
         public void CharacterMapPosition_InterpolatesDuringTravelBasedOnSimulationProgress()
         {
             var calendar = ScriptableObject.CreateInstance<GameCalendarDefinition>();
