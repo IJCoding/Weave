@@ -80,6 +80,10 @@ namespace Weave.Tests.EditMode
         private static void SetField(object target, string fieldName, object value)
         {
             var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(
+                field,
+                Is.Not.Null,
+                $"Expected serialized field '{fieldName}' on {target.GetType().Name} for test setup.");
             field.SetValue(target, value);
         }
     }

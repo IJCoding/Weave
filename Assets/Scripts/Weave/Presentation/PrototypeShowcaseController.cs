@@ -83,13 +83,13 @@ namespace Weave.Presentation
         {
             if (runtimeVisualRoot != null)
             {
-                Destroy(runtimeVisualRoot);
+                DestroyImmediate(runtimeVisualRoot);
             }
 
             if (markerSprite != null)
             {
-                Destroy(markerSprite.texture);
-                Destroy(markerSprite);
+                DestroyImmediate(markerSprite.texture);
+                DestroyImmediate(markerSprite);
             }
         }
 
@@ -144,12 +144,11 @@ namespace Weave.Presentation
 
                 if (GUILayout.Button("Arrive now"))
                 {
-                    while (session.RunState.GetCharacter(controlledCharacter.CharacterId).IsTravelling)
-                    {
-                        session.TickCharacterTravel(controlledCharacter.CharacterId, 1f);
-                    }
-
-                    statusMessage = $"{controlledCharacter.DisplayName} arrived at {GetLocationDisplayName(controlledState.TravelDestinationLocationId)}.";
+                    session.TickCharacterTravel(
+                        controlledCharacter.CharacterId,
+                        Mathf.Max(1f - controlledState.TravelProgress, 0f));
+                    statusMessage =
+                        $"{controlledCharacter.DisplayName} arrived at {GetLocationDisplayName(session.RunState.GetCharacter(controlledCharacter.CharacterId).CurrentLocationId)}.";
                 }
             }
             else if (activeTask != null && controlledState.CurrentTaskId == activeTask.TaskId)
@@ -710,6 +709,12 @@ namespace Weave.Presentation
         private static void SetField(object target, string fieldName, object value)
         {
             var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null)
+            {
+                throw new InvalidOperationException(
+                    $"Could not find serialized field '{fieldName}' on {target.GetType().Name}.");
+            }
+
             field.SetValue(target, value);
         }
     }
