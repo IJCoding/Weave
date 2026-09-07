@@ -44,43 +44,65 @@ namespace Weave.Editor
                 return;
             }
 
-            Undo.IncrementCurrentGroup();
-            Undo.SetCurrentGroupName($"Create {buildMode} Prototype Village");
-
-            var worldRoot = GetOrCreateRootObject(WorldRootName, scene);
-            var villageGrid = EnsureSingleComponent<VillageGrid>(worldRoot);
-            var worldRegistry = EnsureSingleComponent<AuthoredVillageWorldRegistry>(worldRoot);
-            ConfigureRegistry(worldRegistry, villageGrid, buildMode);
-
-            var locationsContainer = ResetContainer(worldRoot.transform, LocationsContainerName);
-            var roadsContainer = ResetContainer(worldRoot.transform, RoadsContainerName);
-            var npcsContainer = ResetContainer(worldRoot.transform, NpcsContainerName);
-
-            var locationsById = CreateCoreLocations(locationsContainer);
-            if (locationsById.Count < 4)
+            if (!ValidateRequiredAssets(buildMode))
             {
-                Debug.LogError("Scene setup aborted: required locations could not be created.");
                 return;
             }
 
-            CreateRoadConnectivity(roadsContainer);
-            CreateNpcs(npcsContainer, locationsById);
+            Undo.IncrementCurrentGroup();
+            var undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName($"Create {buildMode} Prototype Village");
+            var completed = false;
 
-            var bootstrap = GetOrCreateRootObject("PrototypeBootstrap", scene);
-            var session = GetOrAddComponent<PrototypeGameSession>(bootstrap);
-            var scenario = GetOrAddComponent<AuthoredVillageScenario>(bootstrap);
-            GetOrAddComponent<PrototypeShowcaseController>(bootstrap);
+            try
+            {
+                var worldRoot = GetOrCreateRootObject(WorldRootName, scene);
+                var villageGrid = EnsureSingleComponent<VillageGrid>(worldRoot);
+                var worldRegistry = EnsureSingleComponent<AuthoredVillageWorldRegistry>(worldRoot);
+                ConfigureRegistry(worldRegistry, villageGrid, buildMode);
 
-            ConfigureScenario(scenario, worldRegistry);
-            ConfigureSession(session, worldRegistry);
+                var locationsContainer = ResetContainer(worldRoot.transform, LocationsContainerName);
+                var roadsContainer = ResetContainer(worldRoot.transform, RoadsContainerName);
+                var npcsContainer = ResetContainer(worldRoot.transform, NpcsContainerName);
 
-            worldRegistry.RefreshWorld();
-            worldRegistry.ValidateUniqueLocationIds();
-            worldRegistry.ValidateUniqueNpcIds();
+                var locationsById = CreateCoreLocations(locationsContainer);
+                if (locationsById.Count < 4)
+                {
+                    Debug.LogError("Scene setup aborted: required locations could not be created.");
+                    return;
+                }
 
-            EditorSceneManager.MarkSceneDirty(scene);
-            Selection.activeGameObject = bootstrap;
-            Debug.Log($"Prototype village setup complete in {buildMode} mode.", bootstrap);
+                CreateRoadConnectivity(roadsContainer);
+                CreateNpcs(npcsContainer, locationsById);
+
+                var bootstrap = GetOrCreateRootObject("PrototypeBootstrap", scene);
+                var session = GetOrAddComponent<PrototypeGameSession>(bootstrap);
+                var scenario = GetOrAddComponent<AuthoredVillageScenario>(bootstrap);
+                GetOrAddComponent<PrototypeShowcaseController>(bootstrap);
+
+                ConfigureScenario(scenario, worldRegistry);
+                ConfigureSession(session, worldRegistry);
+
+                worldRegistry.RefreshWorld();
+                worldRegistry.ValidateUniqueLocationIds();
+                worldRegistry.ValidateUniqueNpcIds();
+
+                EditorSceneManager.MarkSceneDirty(scene);
+                Selection.activeGameObject = bootstrap;
+                Debug.Log($"Prototype village setup complete in {buildMode} mode.", bootstrap);
+                completed = true;
+            }
+            finally
+            {
+                if (completed)
+                {
+                    Undo.CollapseUndoOperations(undoGroup);
+                }
+                else
+                {
+                    Undo.RevertAllDownToGroup(undoGroup);
+                }
+            }
         }
 
         private static Dictionary<string, AuthoredVillageLocation> CreateCoreLocations(Transform parent)
@@ -345,6 +367,7 @@ namespace Weave.Editor
             var spacingProperty = RequireProperty(element, "MinimumSpacing", "GeneratedLocationRule");
             if (definitionProperty == null || countProperty == null || spacingProperty == null)
             {
+                rules.DeleteArrayElementAtIndex(index);
                 return;
             }
 
@@ -503,6 +526,58 @@ namespace Weave.Editor
             }
 
             return null;
+        }
+
+        private static bool ValidateRequiredAssets(VillageBuildMode buildMode)
+        {
+            var requiredPaths = new List<string>
+            {
+                "Assets/Prefabs/World/Locations/House.prefab",
+                "Assets/Prefabs/World/Locations/Mine.prefab",
+                "Assets/Prefabs/World/Locations/Smithy.prefab",
+                "Assets/Prefabs/World/Locations/Forest.prefab",
+                "Assets/Data/Prototype/Mina.asset",
+                "Assets/Data/Prototype/Rowan.asset",
+                "Assets/Data/Prototype/TalkToMina.asset",
+                "Assets/Data/Prototype/TalkToRowan.asset",
+                "Assets/Data/Prototype/PrototypeCalendar.asset",
+                "Assets/Data/Prototype/PlayerCharacter.asset",
+                "Assets/Data/Prototype/Goodwill.asset",
+                "Assets/Data/Prototype/Wood.asset",
+                "Assets/Data/Prototype/Grain.asset",
+                "Assets/Data/Prototype/Iron.asset"
+            };
+
+            if (LoadAsset<GameObject>("Assets/Prefabs/World/Roads/RoadTile.prefab", "Assets/Prefabs/World/RoadTile.prefab") == null)
+            {
+                Debug.LogError("Missing required road tile prefab.");
+                return false;
+            }
+
+            if (LoadAsset<GameObject>("Assets/Prefabs/World/NPCs/NPC.prefab", "Assets/Prefabs/World/NPC.prefab") == null)
+            {
+                Debug.LogError("Missing required NPC prefab.");
+                return false;
+            }
+
+            if (buildMode == VillageBuildMode.Generated)
+            {
+                requiredPaths.Add("Assets/Data/Locations/Farm.asset");
+                requiredPaths.Add("Assets/Data/Locations/Market.asset");
+                requiredPaths.Add("Assets/Data/Locations/Lumberyard.asset");
+                requiredPaths.Add("Assets/Data/Locations/Well.asset");
+            }
+
+            for (var i = 0; i < requiredPaths.Count; i++)
+            {
+                if (AssetDatabase.LoadAssetAtPath<Object>(requiredPaths[i]) == null)
+                {
+                    Debug.LogError($"Missing required asset: {requiredPaths[i]}");
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static void AddLine(ISet<Vector2Int> cells, Vector2Int start, Vector2Int end)
