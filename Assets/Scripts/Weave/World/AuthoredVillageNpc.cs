@@ -84,13 +84,6 @@ namespace Weave.World
 
         public void ApplyRuntimePosition(Vector2 position)
         {
-            var grid = Grid;
-            if (grid != null)
-            {
-                SetGridPosition(grid.WorldToGrid(position));
-                return;
-            }
-
             transform.position = new Vector3(position.x, position.y, transform.position.z);
         }
 

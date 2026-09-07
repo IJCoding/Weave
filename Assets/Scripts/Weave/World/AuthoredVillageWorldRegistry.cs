@@ -104,7 +104,11 @@ namespace Weave.World
 
             if (buildMode == VillageBuildMode.Generated)
             {
-                RegenerateRuntimeLocations();
+                ClearGeneratedRuntimeObjects();
+                if (Application.isPlaying)
+                {
+                    RegenerateRuntimeLocations();
+                }
             }
             else
             {
@@ -568,12 +572,6 @@ namespace Weave.World
 
         private void RegenerateRuntimeLocations()
         {
-            if (!Application.isPlaying)
-            {
-                return;
-            }
-
-            ClearGeneratedRuntimeObjects();
             var grid = SharedGrid;
             if (grid == null)
             {

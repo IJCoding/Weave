@@ -141,16 +141,16 @@ namespace Weave.World
 
         public Bounds GetBounds(VillageGrid villageGrid = null)
         {
-            villageGrid ??= Grid;
-            if (villageGrid == null)
+            var collider = GetComponent<BoxCollider2D>();
+            if (collider != null)
             {
-                return new Bounds(transform.position, Vector3.one);
+                return collider.bounds;
             }
 
-            var min = villageGrid.GridToWorld(GridPosition);
-            var max = villageGrid.GridToWorld(GridPosition + new Vector2Int(FootprintWidth - 1, FootprintHeight - 1));
-            var center = (min + max) * 0.5f;
-            var size = new Vector3(villageGrid.CellSize * FootprintWidth, villageGrid.CellSize * FootprintHeight, 0.1f);
+            villageGrid ??= Grid;
+            var cellSize = villageGrid != null ? villageGrid.CellSize : 1f;
+            var center = (Vector2)transform.position + new Vector2(cellSize * (FootprintWidth - 1) * 0.5f, cellSize * (FootprintHeight - 1) * 0.5f);
+            var size = new Vector3(cellSize * FootprintWidth, cellSize * FootprintHeight, 0.1f);
             return new Bounds(center, size);
         }
 
