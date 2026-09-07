@@ -48,10 +48,8 @@ namespace Weave.Editor
             Undo.SetCurrentGroupName($"Create {buildMode} Prototype Village");
 
             var worldRoot = GetOrCreateRootObject(WorldRootName, scene);
-            var villageGrid = GetOrAddComponent<VillageGrid>(worldRoot);
-            var worldRegistry = GetOrAddComponent<AuthoredVillageWorldRegistry>(worldRoot);
-            RemoveDuplicateComponents(scene, villageGrid);
-            RemoveDuplicateComponents(scene, worldRegistry);
+            var villageGrid = EnsureSingleComponent<VillageGrid>(worldRoot);
+            var worldRegistry = EnsureSingleComponent<AuthoredVillageWorldRegistry>(worldRoot);
             ConfigureRegistry(worldRegistry, villageGrid, buildMode);
 
             var locationsContainer = ResetContainer(worldRoot.transform, LocationsContainerName);
@@ -59,6 +57,12 @@ namespace Weave.Editor
             var npcsContainer = ResetContainer(worldRoot.transform, NpcsContainerName);
 
             var locationsById = CreateCoreLocations(locationsContainer);
+            if (locationsById.Count < 4)
+            {
+                Debug.LogError("Scene setup aborted: required locations could not be created.");
+                return;
+            }
+
             CreateRoadConnectivity(roadsContainer);
             CreateNpcs(npcsContainer, locationsById);
 
@@ -83,37 +87,37 @@ namespace Weave.Editor
         {
             var locations = new Dictionary<string, AuthoredVillageLocation>();
 
-            locations["home"] = CreateLocation(
+            AddLocationIfCreated(locations, "home", CreateLocation(
                 "Home",
                 "Assets/Prefabs/World/Locations/House.prefab",
                 "home",
                 new Vector2Int(0, 0),
                 parent,
-                true);
+                true));
 
-            locations["mine"] = CreateLocation(
+            AddLocationIfCreated(locations, "mine", CreateLocation(
                 "Mine",
                 "Assets/Prefabs/World/Locations/Mine.prefab",
                 "mine",
                 new Vector2Int(4, 0),
                 parent,
-                false);
+                false));
 
-            locations["smithy"] = CreateLocation(
+            AddLocationIfCreated(locations, "smithy", CreateLocation(
                 "Smithy",
                 "Assets/Prefabs/World/Locations/Smithy.prefab",
                 "smithy",
                 new Vector2Int(0, 4),
                 parent,
-                false);
+                false));
 
-            locations["forest"] = CreateLocation(
+            AddLocationIfCreated(locations, "forest", CreateLocation(
                 "Forest",
                 "Assets/Prefabs/World/Locations/Forest.prefab",
                 "forest",
                 new Vector2Int(4, 4),
                 parent,
-                false);
+                false));
 
             return locations;
         }
@@ -150,6 +154,13 @@ namespace Weave.Editor
 
         private static void CreateNpcs(Transform parent, IReadOnlyDictionary<string, AuthoredVillageLocation> locationsById)
         {
+            if (!locationsById.TryGetValue("mine", out var mineLocation) || mineLocation == null ||
+                !locationsById.TryGetValue("smithy", out var smithyLocation) || smithyLocation == null)
+            {
+                Debug.LogError("Skipping NPC creation because required mine/smithy locations are missing.");
+                return;
+            }
+
             var npcPrefab = LoadAsset<GameObject>(
                 "Assets/Prefabs/World/NPCs/NPC.prefab",
                 "Assets/Prefabs/World/NPC.prefab");
@@ -163,8 +174,8 @@ namespace Weave.Editor
                 npcPrefab,
                 parent,
                 "Assets/Data/Prototype/Mina.asset",
-                locationsById["mine"],
-                locationsById["mine"],
+                mineLocation,
+                mineLocation,
                 "Assets/Data/Prototype/TalkToMina.asset");
 
             CreateNpc(
@@ -172,8 +183,8 @@ namespace Weave.Editor
                 npcPrefab,
                 parent,
                 "Assets/Data/Prototype/Rowan.asset",
-                locationsById["smithy"],
-                locationsById["smithy"],
+                smithyLocation,
+                smithyLocation,
                 "Assets/Data/Prototype/TalkToRowan.asset");
         }
 
@@ -198,6 +209,7 @@ namespace Weave.Editor
             var location = locationObject.GetComponent<AuthoredVillageLocation>();
             if (location == null)
             {
+                Undo.DestroyObjectImmediate(locationObject);
                 return null;
             }
 
@@ -209,7 +221,8 @@ namespace Weave.Editor
             var isHomeProperty = RequireProperty(locationSerializedObject, "isHome", nameof(AuthoredVillageLocation));
             if (instanceIdProperty == null || locationIdProperty == null || isHomeProperty == null)
             {
-                return location;
+                Undo.DestroyObjectImmediate(locationObject);
+                return null;
             }
 
             instanceIdProperty.stringValue = instanceId;
@@ -236,6 +249,7 @@ namespace Weave.Editor
             var npc = npcObject.GetComponent<AuthoredVillageNpc>();
             if (npc == null)
             {
+                Undo.DestroyObjectImmediate(npcObject);
                 return;
             }
 
@@ -252,6 +266,7 @@ namespace Weave.Editor
                 homeLocationProperty == null ||
                 talkEventProperty == null)
             {
+                Undo.DestroyObjectImmediate(npcObject);
                 return;
             }
 
@@ -440,21 +455,35 @@ namespace Weave.Editor
             return Undo.AddComponent<T>(gameObject);
         }
 
-        private static void RemoveDuplicateComponents<T>(Scene scene, T keepComponent) where T : Component
+        private static void AddLocationIfCreated(
+            IDictionary<string, AuthoredVillageLocation> locationsById,
+            string locationId,
+            AuthoredVillageLocation location)
         {
-            var components = Object.FindObjectsOfType<T>(true);
-            for (var i = 0; i < components.Length; i++)
+            if (location != null)
             {
-                var candidate = components[i];
-                if (candidate == null ||
-                    candidate == keepComponent ||
-                    candidate.gameObject.scene != scene)
-                {
-                    continue;
-                }
-
-                Undo.DestroyObjectImmediate(candidate);
+                locationsById[locationId] = location;
             }
+        }
+
+        private static T EnsureSingleComponent<T>(GameObject gameObject) where T : Component
+        {
+            var components = gameObject.GetComponents<T>();
+            if (components.Length == 0)
+            {
+                return Undo.AddComponent<T>(gameObject);
+            }
+
+            var keep = components[0];
+            for (var i = 1; i < components.Length; i++)
+            {
+                if (components[i] != null)
+                {
+                    Undo.DestroyObjectImmediate(components[i]);
+                }
+            }
+
+            return keep;
         }
 
         private static T LoadAsset<T>(params string[] paths) where T : Object
