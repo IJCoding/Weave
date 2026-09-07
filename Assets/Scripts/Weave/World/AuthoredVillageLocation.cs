@@ -14,36 +14,114 @@ namespace Weave.World
         Destination
     }
 
-    [ExecuteAlways]
-    public sealed class AuthoredVillageLocation : MonoBehaviour
+    public enum LocationPlacementSource
+    {
+        Preset,
+        Generated
+    }
+
+    public sealed class AuthoredVillageLocation : VillageGridEntity
     {
         public static event Action<AuthoredVillageLocation> Clicked;
 
-        [SerializeField] private string locationId = string.Empty;
+        [SerializeField, HideInInspector] private string locationId = string.Empty;
+        [SerializeField] private string instanceId = string.Empty;
         [SerializeField] private string displayName = string.Empty;
         [SerializeField] private string visualLabel = string.Empty;
         [SerializeField] private LocationType locationType = LocationType.Village;
         [SerializeField] private LocationDefinition locationDefinition;
+        [SerializeField] private bool useDefaultTasks = true;
         [SerializeField] private List<TaskDefinition> availableTasks = new List<TaskDefinition>();
+        [SerializeField] private List<TaskDefinition> additionalTasks = new List<TaskDefinition>();
         [SerializeField] private bool isHome;
         [SerializeField] private AuthoredVillageNpc ownerNpc;
         [SerializeField] private Transform travelAnchor;
+        [SerializeField] private Vector2Int travelGridOffset = new Vector2Int(0, -1);
+        [SerializeField, Min(1)] private int footprintWidth = 1;
+        [SerializeField, Min(1)] private int footprintHeight = 1;
+        [SerializeField] private LocationPlacementSource placementSource = LocationPlacementSource.Preset;
         [SerializeField] private SpriteRenderer visualRenderer;
         [SerializeField] private TextMesh labelMesh;
-        [SerializeField] private Color normalColor = new Color(0.26f, 0.34f, 0.44f, 1f);
+        [SerializeField] private Color normalColor = Color.white;
         [SerializeField] private Color currentColor = new Color(0.92f, 0.95f, 0.99f, 1f);
         [SerializeField] private Color destinationColor = new Color(0.33f, 0.85f, 0.52f, 1f);
 
-        public string LocationId => locationId;
-        public string DisplayName => string.IsNullOrWhiteSpace(displayName) ? gameObject.name : displayName;
+        public string InstanceId => string.IsNullOrWhiteSpace(instanceId) ? locationId : instanceId;
+        public string LocationId => InstanceId;
+        public string DisplayName => string.IsNullOrWhiteSpace(displayName)
+            ? locationDefinition != null && !string.IsNullOrWhiteSpace(locationDefinition.DisplayName)
+                ? locationDefinition.DisplayName
+                : gameObject.name
+            : displayName;
         public string VisualLabel => string.IsNullOrWhiteSpace(visualLabel) ? DisplayName : visualLabel;
         public LocationType LocationType => locationType;
         public LocationDefinition LocationDefinition => locationDefinition;
+        public bool UseDefaultTasks => useDefaultTasks;
         public IReadOnlyList<TaskDefinition> AvailableTasks => availableTasks;
+        public IReadOnlyList<TaskDefinition> AdditionalTasks => additionalTasks;
         public bool IsHome => isHome;
         public AuthoredVillageNpc OwnerNpc => ownerNpc;
-        public Vector2 WorldPosition => transform.position;
-        public Vector2 TravelAnchorPosition => travelAnchor != null ? travelAnchor.position : transform.position;
+        public int FootprintWidth => Mathf.Max(1, locationDefinition != null ? locationDefinition.FootprintWidth : footprintWidth);
+        public int FootprintHeight => Mathf.Max(1, locationDefinition != null ? locationDefinition.FootprintHeight : footprintHeight);
+        public LocationPlacementSource PlacementSource => placementSource;
+        public Vector2Int TravelGridPosition => GridPosition + travelGridOffset;
+        public Vector2 TravelAnchorPosition => travelAnchor != null ? travelAnchor.position : ResolveWorldFromGridPosition(TravelGridPosition);
+
+        public IEnumerable<Vector2Int> EnumerateFootprintCells()
+        {
+            for (var x = 0; x < FootprintWidth; x++)
+            {
+                for (var y = 0; y < FootprintHeight; y++)
+                {
+                    yield return GridPosition + new Vector2Int(x, y);
+                }
+            }
+        }
+
+        public IEnumerable<TaskDefinition> GetAllTasks()
+        {
+            if (useDefaultTasks && locationDefinition != null)
+            {
+                foreach (var task in locationDefinition.DefaultTasks)
+                {
+                    if (task != null)
+                    {
+                        yield return task;
+                    }
+                }
+            }
+            else
+            {
+                foreach (var task in availableTasks)
+                {
+                    if (task != null)
+                    {
+                        yield return task;
+                    }
+                }
+            }
+
+            foreach (var task in additionalTasks)
+            {
+                if (task != null)
+                {
+                    yield return task;
+                }
+            }
+        }
+
+        public void ConfigureGenerated(string newInstanceId, LocationDefinition definition, Vector2Int gridPosition)
+        {
+            instanceId = newInstanceId;
+            locationId = newInstanceId;
+            locationDefinition = definition;
+            displayName = definition != null ? definition.DisplayName : displayName;
+            locationType = definition != null ? definition.LocationType : locationType;
+            placementSource = LocationPlacementSource.Generated;
+            SetGridPosition(gridPosition);
+            ApplyTravelAnchor();
+            ConfigureCollider();
+        }
 
         public void SetVisualState(LocationVisualState state)
         {
@@ -53,55 +131,73 @@ namespace Weave.World
                 return;
             }
 
-            switch (state)
+            visualRenderer.color = state switch
             {
-                case LocationVisualState.Current:
-                    visualRenderer.color = currentColor;
-                    break;
-                case LocationVisualState.Destination:
-                    visualRenderer.color = destinationColor;
-                    break;
-                default:
-                    visualRenderer.color = normalColor;
-                    break;
-            }
+                LocationVisualState.Current => currentColor,
+                LocationVisualState.Destination => destinationColor,
+                _ => normalColor
+            };
         }
 
-        public Bounds GetBounds()
+        public Bounds GetBounds(VillageGrid villageGrid = null)
         {
-            EnsureReferences();
             var collider = GetComponent<BoxCollider2D>();
-            return collider != null ? collider.bounds : new Bounds(transform.position, Vector3.one);
+            if (collider != null)
+            {
+                return collider.bounds;
+            }
+
+            villageGrid ??= Grid;
+            var cellSize = villageGrid != null ? villageGrid.CellSize : 1f;
+            var center = (Vector2)transform.position + new Vector2(cellSize * (FootprintWidth - 1) * 0.5f, cellSize * (FootprintHeight - 1) * 0.5f);
+            var size = new Vector3(cellSize * FootprintWidth, cellSize * FootprintHeight, 0.1f);
+            return new Bounds(center, size);
         }
 
         public LocationDefinition CreateRuntimeDefinition()
         {
             var definition = ScriptableObject.CreateInstance<LocationDefinition>();
             definition.hideFlags = HideFlags.HideAndDontSave;
-            SerializedFieldUtility.SetPrivateField(definition, "locationId", locationId);
+            SerializedFieldUtility.SetPrivateField(definition, "locationId", InstanceId);
+            SerializedFieldUtility.SetPrivateField(definition, "id", InstanceId);
             SerializedFieldUtility.SetPrivateField(definition, "displayName", DisplayName);
             SerializedFieldUtility.SetPrivateField(definition, "locationType", locationType);
+            SerializedFieldUtility.SetPrivateField(definition, "buildingPrefab", locationDefinition != null ? locationDefinition.BuildingPrefab : gameObject);
+            SerializedFieldUtility.SetPrivateField(definition, "defaultTasks", new List<TaskDefinition>(GetAllTasks()));
+            SerializedFieldUtility.SetPrivateField(definition, "tags", new List<string>());
+            SerializedFieldUtility.SetPrivateField(definition, "footprintWidth", FootprintWidth);
+            SerializedFieldUtility.SetPrivateField(definition, "footprintHeight", FootprintHeight);
             SerializedFieldUtility.SetPrivateField(definition, "mapPosition", (Vector2)transform.position);
             return definition;
         }
 
-        private void Reset()
+        protected override void Awake()
         {
+            if (string.IsNullOrWhiteSpace(instanceId))
+            {
+                instanceId = locationId;
+            }
+
+            locationId = instanceId;
+            base.Awake();
             EnsureReferences();
             ConfigureCollider();
+            ApplyTravelAnchor();
             ApplyAuthoringVisuals();
         }
 
-        private void Awake()
+        protected override void OnValidate()
         {
-            EnsureReferences();
-            ApplyAuthoringVisuals();
-        }
+            if (string.IsNullOrWhiteSpace(instanceId))
+            {
+                instanceId = locationId;
+            }
 
-        private void OnValidate()
-        {
+            locationId = instanceId;
+            base.OnValidate();
             EnsureReferences();
             ConfigureCollider();
+            ApplyTravelAnchor();
             ApplyAuthoringVisuals();
         }
 
@@ -122,10 +218,22 @@ namespace Weave.World
 
         private void OnDrawGizmosSelected()
         {
+            var grid = Grid;
+            if (grid == null)
+            {
+                return;
+            }
+
+            Gizmos.color = new Color(0.3f, 1f, 0.8f, 1f);
+            foreach (var cell in EnumerateFootprintCells())
+            {
+                Gizmos.DrawWireCube(grid.GridToWorld(cell), Vector3.one * grid.CellSize);
+            }
+
             Gizmos.color = Color.cyan;
-            Gizmos.DrawWireSphere(TravelAnchorPosition, 0.14f);
+            Gizmos.DrawWireSphere(TravelAnchorPosition, grid.CellSize * 0.16f);
 #if UNITY_EDITOR
-            UnityEditor.Handles.Label(TravelAnchorPosition + Vector2.up * 0.2f, locationId);
+            UnityEditor.Handles.Label(TravelAnchorPosition + Vector2.up * 0.2f, instanceId);
 #endif
         }
 
@@ -143,13 +251,6 @@ namespace Weave.World
             if (labelMesh == null)
             {
                 labelMesh = GetComponentInChildren<TextMesh>();
-                if (labelMesh == null)
-                {
-                    var labelObject = new GameObject("Label");
-                    labelObject.transform.SetParent(transform, false);
-                    labelObject.transform.localPosition = new Vector3(0f, 0.95f, 0f);
-                    labelMesh = labelObject.AddComponent<TextMesh>();
-                }
             }
 
             if (travelAnchor == null)
@@ -159,7 +260,6 @@ namespace Weave.World
                 {
                     var anchorObject = new GameObject("TravelAnchor");
                     anchorObject.transform.SetParent(transform, false);
-                    anchorObject.transform.localPosition = new Vector3(0f, -0.75f, 0f);
                     anchor = anchorObject.transform;
                 }
 
@@ -175,23 +275,37 @@ namespace Weave.World
                 collider = gameObject.AddComponent<BoxCollider2D>();
             }
 
-            collider.size = new Vector2(1.6f, 1f);
+            var grid = Grid;
+            var cellSize = grid != null ? grid.CellSize : 1f;
+            collider.size = new Vector2(cellSize * FootprintWidth, cellSize * FootprintHeight);
+            collider.offset = new Vector2(cellSize * (FootprintWidth - 1) * 0.5f, cellSize * (FootprintHeight - 1) * 0.5f);
         }
 
-        private void ApplyAuthoringVisuals()
+        private void ApplyTravelAnchor()
         {
-            if (!Application.isPlaying)
+            if (travelAnchor == null)
             {
                 return;
             }
 
+            var world = ResolveWorldFromGridPosition(TravelGridPosition);
+            travelAnchor.position = new Vector3(world.x, world.y, travelAnchor.position.z);
+        }
+
+        private void ApplyAuthoringVisuals()
+        {
             if (visualRenderer != null)
             {
-                visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
-                visualRenderer.drawMode = SpriteDrawMode.Sliced;
-                visualRenderer.size = new Vector2(1.6f, 1f);
+                if (visualRenderer.sprite == null)
+                {
+                    visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
+                    visualRenderer.drawMode = SpriteDrawMode.Sliced;
+                    var grid = Grid;
+                    var cellSize = grid != null ? grid.CellSize : 1f;
+                    visualRenderer.size = new Vector2(cellSize * FootprintWidth, cellSize * FootprintHeight);
+                }
+
                 visualRenderer.color = normalColor;
-                visualRenderer.sortingOrder = 0;
             }
 
             if (labelMesh != null)

@@ -5,8 +5,7 @@ using Weave.Runtime;
 
 namespace Weave.World
 {
-    [ExecuteAlways]
-    public sealed class AuthoredVillageNpc : MonoBehaviour
+    public sealed class AuthoredVillageNpc : VillageGridEntity
     {
         [SerializeField] private CharacterDefinition characterDefinition;
         [SerializeField] private string displayNameOverride = string.Empty;
@@ -88,23 +87,18 @@ namespace Weave.World
             transform.position = new Vector3(position.x, position.y, transform.position.z);
         }
 
-        private void Reset()
+        protected override void Awake()
         {
             runtimeCharacterDefinition = null;
+            base.Awake();
             EnsureReferences();
             ApplyVisuals();
         }
 
-        private void Awake()
+        protected override void OnValidate()
         {
             runtimeCharacterDefinition = null;
-            EnsureReferences();
-            ApplyVisuals();
-        }
-
-        private void OnValidate()
-        {
-            runtimeCharacterDefinition = null;
+            base.OnValidate();
             EnsureReferences();
             ApplyVisuals();
         }
@@ -125,10 +119,6 @@ namespace Weave.World
             if (visualRenderer == null)
             {
                 visualRenderer = GetComponent<SpriteRenderer>();
-                if (visualRenderer == null)
-                {
-                    visualRenderer = gameObject.AddComponent<SpriteRenderer>();
-                }
             }
 
             if (labelMesh == null)
@@ -150,7 +140,11 @@ namespace Weave.World
 
             if (visualRenderer != null)
             {
-                visualRenderer.sprite = PrototypeSpriteLibrary.GetCircleSprite();
+                if (visualRenderer.sprite == null)
+                {
+                    visualRenderer.sprite = PrototypeSpriteLibrary.GetCircleSprite();
+                }
+
                 visualRenderer.color = characterDefinition != null ? characterDefinition.MapColor : fallbackColor;
                 visualRenderer.sortingOrder = 10;
             }

@@ -415,35 +415,36 @@ That is enough to prove:
 
 ## Starter code included in this repository
 
-The initial code scaffold added in this step provides:
+The prototype now supports a shared grid for authored and generated village content.
 
-- ScriptableObject definitions for calendar, characters, locations, tasks, and events
-- an editor-authored prototype village in `Assets/Scenes/SampleScene.unity`
-- drag-and-drop world prefabs in `Assets/Prefabs/World/`
-- authored world discovery via `AuthoredVillageWorldRegistry`
-- command-based travel across authored locations and road tiles
+## Authoring with the shared village grid
 
-## Authoring the prototype village
+Use `VillageGrid` as the single source of spatial conversion (`WorldToGrid`, `GridToWorld`, snapping).
 
-Use the scene itself as the authoritative world layout.
+### Preset mode (manual placement)
 
-### How to build a village
+1. Add `VillageGrid` and `AuthoredVillageWorldRegistry` to your world root.
+2. Set `AuthoredVillageWorldRegistry.Build Mode` to `Preset`.
+3. Drag building prefabs with `AuthoredVillageLocation` into the scene.
+4. Set each location `Instance Id` (unique), `Location Definition`, and optional additional tasks.
+5. Drag `RoadTile` and `NPC` prefabs; they snap to the same grid and keep integer `GridPosition`.
+6. Move objects with normal transform tools; their grid coordinates update automatically.
+7. Press Play. The registry auto-discovers scene-authored locations, roads, and NPCs.
 
-1. Drag `Assets/Prefabs/World/Location.prefab` into the scene.
-2. Set its `Location ID`, `Display Name`, and optional `Visual Label`.
-3. Assign `TaskDefinition` assets in the location's `Available Tasks` list.
-4. Position the `TravelAnchor` child where characters should stand.
-5. Drag `Assets/Prefabs/World/RoadTile.prefab` into the scene and duplicate it to form roads.
-6. Adjust each road tile's `Movement Multiplier` to tune travel speed.
-7. Drag `Assets/Prefabs/World/NPC.prefab` into the scene.
-8. Assign its `CharacterDefinition`, `Starting Location`, `Home Location`, and `Talk Event`.
-9. Press Play. `AuthoredVillageWorldRegistry` discovers the scene objects automatically.
+### Generated mode
+
+1. Keep the same `VillageGrid`.
+2. Set `AuthoredVillageWorldRegistry.Build Mode` to `Generated`.
+3. Configure generation bounds, seed, and generated location rules (definition + count + spacing).
+4. Press Play. Locations are instantiated on free grid cells using each definition footprint.
+5. Generated and preset systems share the same IDs, grid conversion, occupancy, and pathfinding.
 
 ### Runtime split
 
-- Scene-authored objects own spatial layout, travel anchors, road placement, and location task membership.
-- `RunState` still owns mutable simulation state such as current location, carried resources, active task, travel progress, and world flags.
-- Save/load stays stable through `LocationId` strings instead of scene object references.
+- `LocationDefinition` is reusable type metadata (id/name/prefab/default tasks/footprint).
+- `AuthoredVillageLocation` is an instance (`InstanceId`, `GridPosition`, travel cell, optional task overrides).
+- `RunState` owns mutable simulation state (current location, carried resources, active task, travel progress, world flags).
+- Save/load should use stable IDs (`InstanceId`, `CharacterId`, grid positions), not scene object references.
 - runtime state types for the current run
 - canon resolution
 - a small day/task/event simulation service
