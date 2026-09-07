@@ -292,7 +292,7 @@ namespace Weave.World
         {
             if (visualRenderer != null)
             {
-                normalColor = visualRenderer.color;
+                visualRenderer.color = normalColor;
             }
 
             if (labelMesh != null)

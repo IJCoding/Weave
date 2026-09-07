@@ -7,6 +7,7 @@ namespace Weave.World
     {
         [SerializeField] private VillageGrid villageGrid;
         [SerializeField] private Vector2Int gridPosition;
+        [SerializeField, HideInInspector] private bool hasAuthoritativeGridPosition;
         [SerializeField] private bool snapInEditor = true;
 
         private Vector3 lastSnappedWorldPosition;
@@ -22,6 +23,7 @@ namespace Weave.World
 
         protected virtual void OnValidate()
         {
+            hasAuthoritativeGridPosition = true;
             SyncToGrid();
         }
 
@@ -38,6 +40,7 @@ namespace Weave.World
         public void SetGridPosition(Vector2Int position)
         {
             gridPosition = position;
+            hasAuthoritativeGridPosition = true;
             SyncTransformFromGrid();
         }
 
@@ -50,7 +53,12 @@ namespace Weave.World
 
             if (!initialized)
             {
-                gridPosition = ResolveCurrentGridPosition();
+                if (!hasAuthoritativeGridPosition)
+                {
+                    gridPosition = ResolveCurrentGridPosition();
+                    hasAuthoritativeGridPosition = true;
+                }
+
                 SyncTransformFromGrid();
                 initialized = true;
                 return;
@@ -61,6 +69,7 @@ namespace Weave.World
             if ((current - lastSnappedWorldPosition).sqrMagnitude > 0.0001f)
             {
                 gridPosition = ResolveCurrentGridPosition();
+                hasAuthoritativeGridPosition = true;
                 SyncTransformFromGrid();
                 return;
             }

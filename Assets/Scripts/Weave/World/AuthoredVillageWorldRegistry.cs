@@ -656,7 +656,14 @@ namespace Weave.World
                     continue;
                 }
 
-                Destroy(instance);
+                if (Application.isPlaying)
+                {
+                    Destroy(instance);
+                }
+                else
+                {
+                    DestroyImmediate(instance);
+                }
             }
 
             generatedRuntimeObjects.Clear();
@@ -689,6 +696,14 @@ namespace Weave.World
 
         private bool CanPlaceFootprint(Vector2Int anchor, int width, int height, int minimumSpacing, HashSet<Vector2Int> occupied)
         {
+            if (anchor.x < generationMin.x ||
+                anchor.y < generationMin.y ||
+                anchor.x + width - 1 > generationMax.x ||
+                anchor.y + height - 1 > generationMax.y)
+            {
+                return false;
+            }
+
             for (var x = -minimumSpacing; x < width + minimumSpacing; x++)
             {
                 for (var y = -minimumSpacing; y < height + minimumSpacing; y++)

@@ -83,35 +83,35 @@ namespace Weave.Tests.EditMode
                 Assert.That(talkTasks, Has.Count.EqualTo(1));
                 Assert.That(talkTasks[0].DisplayName, Is.EqualTo("Talk to Mina"));
             }
-
-            [Test]
-            public void BuildTravelPlan_AvoidsBuildingFootprintCells()
+            finally
             {
-                var root = new GameObject("World");
-                try
-                {
-                    root.AddComponent<VillageGrid>();
-                    var registry = root.AddComponent<AuthoredVillageWorldRegistry>();
-                    CreateLocation(root.transform, "home", Vector2.zero, new Vector2Int(0, 0), new Vector2Int(0, 0));
-                    CreateLocation(root.transform, "mine", Vector2.zero, new Vector2Int(4, 0), new Vector2Int(0, 0));
-                    var blocker = CreateLocation(root.transform, "house", Vector2.zero, new Vector2Int(2, 0), new Vector2Int(0, 0));
-                    SerializedFieldUtility.SetPrivateField(blocker, "footprintWidth", 2);
-                    SerializedFieldUtility.SetPrivateField(blocker, "footprintHeight", 1);
+                Object.DestroyImmediate(root);
+            }
+        }
 
-                    registry.RefreshWorld();
-                    var plan = registry.BuildTravelPlan("home", "mine", 1f, 1f, 0.1f);
+        [Test]
+        public void BuildTravelPlan_AvoidsBuildingFootprintCells()
+        {
+            var root = new GameObject("World");
+            try
+            {
+                root.AddComponent<VillageGrid>();
+                var registry = root.AddComponent<AuthoredVillageWorldRegistry>();
+                CreateLocation(root.transform, "home", Vector2.zero, new Vector2Int(0, 0), new Vector2Int(0, 0));
+                CreateLocation(root.transform, "mine", Vector2.zero, new Vector2Int(4, 0), new Vector2Int(0, 0));
+                var blocker = CreateLocation(root.transform, "house", Vector2.zero, new Vector2Int(2, 0), new Vector2Int(0, 0));
+                SerializedFieldUtility.SetPrivateField(blocker, "footprintWidth", 2);
+                SerializedFieldUtility.SetPrivateField(blocker, "footprintHeight", 1);
 
-                    Assert.That(plan.Waypoints.Count, Is.GreaterThan(2));
-                    foreach (var point in plan.Waypoints)
-                    {
-                        var cell = registry.SharedGrid.WorldToGrid(point);
-                        Assert.That(cell, Is.Not.EqualTo(new Vector2Int(2, 0)));
-                        Assert.That(cell, Is.Not.EqualTo(new Vector2Int(3, 0)));
-                    }
-                }
-                finally
+                registry.RefreshWorld();
+                var plan = registry.BuildTravelPlan("home", "mine", 1f, 1f, 0.1f);
+
+                Assert.That(plan.Waypoints.Count, Is.GreaterThan(2));
+                foreach (var point in plan.Waypoints)
                 {
-                    Object.DestroyImmediate(root);
+                    var cell = registry.SharedGrid.WorldToGrid(point);
+                    Assert.That(cell, Is.Not.EqualTo(new Vector2Int(2, 0)));
+                    Assert.That(cell, Is.Not.EqualTo(new Vector2Int(3, 0)));
                 }
             }
             finally
