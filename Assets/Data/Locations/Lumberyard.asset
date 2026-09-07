@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 48e08ded00780534bb23a3786060e146, type: 3}
+  m_Name: Lumberyard
+  m_EditorClassIdentifier: Assembly-CSharp::Weave.Data.LocationDefinition
+  locationId: lumberyard
+  id: lumberyard
+  displayName: Lumberyard
+  locationType: 3
+  buildingPrefab: {fileID: 100000, guid: 0ca1184fc9c54284a60594ee28d62ba3, type: 3}
+  defaultTasks: []
+  tags: []
+  footprintWidth: 1
+  footprintHeight: 1
+  mapPosition: {x: 0, y: 0}

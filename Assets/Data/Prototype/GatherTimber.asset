@@ -14,8 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Weave.Data.TaskDefinition
   taskId: gather_timber
   displayName: Gather Timber
-  requiredLocation: {fileID: 0}
-  requiredLocationId: 
+  requiredLocation: {fileID: 11400000, guid: 519455c220f447d6b2c00c74b1cd20d4, type: 2}
+  requiredLocationId: forest
   eligibleCharacters: []
   requiredWorldFlags: []
   blockedWorldFlags: []

@@ -16,7 +16,7 @@ MonoBehaviour:
   displayName: Player
   profession: 5
   mapColor: {r: 0.39, g: 0.74, b: 0.96, a: 1}
-  homeLocation: {fileID: 0}
+  homeLocation: {fileID: 11400000, guid: 797ea8e5925b48fc8d1703afa093cb11, type: 2}
   homeLocationId: home
   startingResources: []
   developerCanon: []

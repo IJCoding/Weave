@@ -40,13 +40,20 @@ namespace Weave.World
         [SerializeField, Min(1)] private int footprintWidth = 1;
         [SerializeField, Min(1)] private int footprintHeight = 1;
         [SerializeField] private LocationPlacementSource placementSource = LocationPlacementSource.Preset;
+        [SerializeField] private Sprite authoredSprite;
         [SerializeField] private SpriteRenderer visualRenderer;
         [SerializeField] private TextMesh labelMesh;
         [SerializeField] private Color normalColor = Color.white;
         [SerializeField] private Color currentColor = new Color(0.92f, 0.95f, 0.99f, 1f);
         [SerializeField] private Color destinationColor = new Color(0.33f, 0.85f, 0.52f, 1f);
+        [NonSerialized] private bool warnedMissingInstanceId;
+        [NonSerialized] private bool warnedMissingDefinition;
+        [NonSerialized] private bool warnedMissingGrid;
+        [NonSerialized] private bool warnedInvalidTravelCell;
 
-        public string InstanceId => string.IsNullOrWhiteSpace(instanceId) ? locationId : instanceId;
+        public string InstanceId => !string.IsNullOrWhiteSpace(instanceId)
+            ? instanceId.Trim()
+            : string.IsNullOrWhiteSpace(locationId) ? string.Empty : locationId.Trim();
         public string LocationId => InstanceId;
         public string DisplayName => string.IsNullOrWhiteSpace(displayName)
             ? locationDefinition != null && !string.IsNullOrWhiteSpace(locationDefinition.DisplayName)
@@ -173,32 +180,40 @@ namespace Weave.World
 
         protected override void Awake()
         {
-            if (string.IsNullOrWhiteSpace(instanceId))
+            if (!string.IsNullOrWhiteSpace(instanceId))
             {
-                instanceId = locationId;
+                locationId = instanceId.Trim();
+            }
+            else
+            {
+                locationId = string.IsNullOrWhiteSpace(locationId) ? string.Empty : locationId.Trim();
             }
 
-            locationId = instanceId;
             base.Awake();
             EnsureReferences();
             ConfigureCollider();
             ApplyTravelAnchor();
             ApplyAuthoringVisuals();
+            ValidateAuthoringConfiguration();
         }
 
         protected override void OnValidate()
         {
-            if (string.IsNullOrWhiteSpace(instanceId))
+            if (!string.IsNullOrWhiteSpace(instanceId))
             {
-                instanceId = locationId;
+                locationId = instanceId.Trim();
+            }
+            else
+            {
+                locationId = string.IsNullOrWhiteSpace(locationId) ? string.Empty : locationId.Trim();
             }
 
-            locationId = instanceId;
             base.OnValidate();
             EnsureReferences();
             ConfigureCollider();
             ApplyTravelAnchor();
             ApplyAuthoringVisuals();
+            ValidateAuthoringConfiguration();
         }
 
         private void OnMouseUpAsButton()
@@ -298,11 +313,19 @@ namespace Weave.World
             {
                 if (visualRenderer.sprite == null)
                 {
-                    visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
-                    visualRenderer.drawMode = SpriteDrawMode.Sliced;
-                    var grid = Grid;
-                    var cellSize = grid != null ? grid.CellSize : 1f;
-                    visualRenderer.size = new Vector2(cellSize * FootprintWidth, cellSize * FootprintHeight);
+                    if (authoredSprite != null)
+                    {
+                        visualRenderer.sprite = authoredSprite;
+                        visualRenderer.drawMode = SpriteDrawMode.Simple;
+                    }
+                    else
+                    {
+                        visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
+                        visualRenderer.drawMode = SpriteDrawMode.Sliced;
+                        var grid = Grid;
+                        var cellSize = grid != null ? grid.CellSize : 1f;
+                        visualRenderer.size = new Vector2(cellSize * FootprintWidth, cellSize * FootprintHeight);
+                    }
                 }
 
                 visualRenderer.color = normalColor;
@@ -317,6 +340,79 @@ namespace Weave.World
                 labelMesh.fontSize = 48;
                 labelMesh.color = Color.white;
             }
+        }
+
+        private void ValidateAuthoringConfiguration()
+        {
+            if (string.IsNullOrWhiteSpace(InstanceId))
+            {
+                if (!warnedMissingInstanceId)
+                {
+                    Debug.LogWarning(
+                        $"Location '{name}' has no InstanceId. Set a unique InstanceId for stable save/load and registry binding.",
+                        this);
+                    warnedMissingInstanceId = true;
+                }
+            }
+            else
+            {
+                warnedMissingInstanceId = false;
+            }
+
+            if (locationDefinition == null)
+            {
+                if (!warnedMissingDefinition)
+                {
+                    Debug.LogWarning($"Location '{name}' is missing a LocationDefinition reference.", this);
+                    warnedMissingDefinition = true;
+                }
+            }
+            else
+            {
+                warnedMissingDefinition = false;
+            }
+
+            if (Grid == null)
+            {
+                if (!warnedMissingGrid)
+                {
+                    Debug.LogError($"Location '{name}' could not find a VillageGrid in the scene hierarchy.", this);
+                    warnedMissingGrid = true;
+                }
+            }
+            else
+            {
+                warnedMissingGrid = false;
+            }
+
+            if (IsTravelCellInsideOwnFootprint())
+            {
+                if (!warnedInvalidTravelCell)
+                {
+                    Debug.LogError(
+                        $"Location '{name}' has an invalid travel cell {TravelGridPosition} inside its blocked footprint. Adjust Travel Grid Offset.",
+                        this);
+                    warnedInvalidTravelCell = true;
+                }
+            }
+            else
+            {
+                warnedInvalidTravelCell = false;
+            }
+        }
+
+        private bool IsTravelCellInsideOwnFootprint()
+        {
+            var travelCell = TravelGridPosition;
+            foreach (var occupiedCell in EnumerateFootprintCells())
+            {
+                if (occupiedCell == travelCell)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

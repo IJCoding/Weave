@@ -5,6 +5,7 @@ namespace Weave.World
     public sealed class AuthoredVillageRoadTile : VillageGridEntity
     {
         [SerializeField] private float movementMultiplier = 1.5f;
+        [SerializeField] private Sprite roadSprite;
         [SerializeField] private SpriteRenderer visualRenderer;
         [SerializeField] private Color roadColor = new Color(0.55f, 0.45f, 0.31f, 1f);
 
@@ -74,8 +75,8 @@ namespace Weave.World
             {
                 if (visualRenderer.sprite == null)
                 {
-                    visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
-                    visualRenderer.drawMode = SpriteDrawMode.Sliced;
+                    visualRenderer.sprite = roadSprite != null ? roadSprite : PrototypeSpriteLibrary.GetSquareSprite();
+                    visualRenderer.drawMode = roadSprite != null ? SpriteDrawMode.Simple : SpriteDrawMode.Sliced;
                 }
 
                 visualRenderer.size = new Vector2(size, size);

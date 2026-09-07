@@ -8,16 +8,18 @@ namespace Weave.World
 {
     public readonly struct TravelPlan
     {
-        public TravelPlan(List<Vector2> waypoints, List<float> cumulativeDurations, float totalDurationSeconds)
+        public TravelPlan(List<Vector2> waypoints, List<float> cumulativeDurations, float totalDurationSeconds, bool isPathFound = true)
         {
             Waypoints = waypoints ?? new List<Vector2>();
             CumulativeDurations = cumulativeDurations ?? new List<float>();
             TotalDurationSeconds = Mathf.Max(totalDurationSeconds, 0.01f);
+            IsPathFound = isPathFound;
         }
 
         public IReadOnlyList<Vector2> Waypoints { get; }
         public IReadOnlyList<float> CumulativeDurations { get; }
         public float TotalDurationSeconds { get; }
+        public bool IsPathFound { get; }
     }
 
     public sealed class AuthoredVillageWorldRegistry : MonoBehaviour
@@ -66,6 +68,9 @@ namespace Weave.World
         private readonly Dictionary<string, LocationDefinition> runtimeLocationsById = new Dictionary<string, LocationDefinition>();
         private readonly List<LocationDefinition> runtimeLocations = new List<LocationDefinition>();
         private readonly List<GameObject> generatedRuntimeObjects = new List<GameObject>();
+        private readonly HashSet<string> loggedPathNotFoundKeys = new HashSet<string>();
+        [NonSerialized] private bool warnedMissingGrid;
+        [NonSerialized] private bool warnedDuplicateRegistry;
 
         public VillageBuildMode BuildMode => buildMode;
         public VillageGrid SharedGrid => villageGrid != null ? villageGrid : Weave.World.VillageGrid.FindGrid(transform);
@@ -80,6 +85,7 @@ namespace Weave.World
 
         private void Awake()
         {
+            ValidateSingleRegistry();
             RefreshWorld();
         }
 
@@ -90,6 +96,7 @@ namespace Weave.World
                 villageGrid = Weave.World.VillageGrid.FindGrid(transform);
             }
 
+            ValidateSingleRegistry();
             RefreshWorld();
             ValidateUniqueLocationIds();
             ValidateUniqueNpcIds();
@@ -100,6 +107,19 @@ namespace Weave.World
             if (villageGrid == null)
             {
                 villageGrid = Weave.World.VillageGrid.FindGrid(transform);
+            }
+
+            if (villageGrid == null)
+            {
+                if (!warnedMissingGrid)
+                {
+                    Debug.LogError("AuthoredVillageWorldRegistry requires exactly one VillageGrid in the scene.", this);
+                    warnedMissingGrid = true;
+                }
+            }
+            else
+            {
+                warnedMissingGrid = false;
             }
 
             if (buildMode == VillageBuildMode.Generated)
@@ -123,6 +143,7 @@ namespace Weave.World
             roadsByGridPosition.Clear();
             occupiedBuildingCells.Clear();
             npcsByGridPosition.Clear();
+            loggedPathNotFoundKeys.Clear();
 
             GetComponentsInChildren(true, locations);
             GetComponentsInChildren(true, roadTiles);
@@ -168,18 +189,19 @@ namespace Weave.World
 
             foreach (var npc in npcs)
             {
-                if (npc == null || string.IsNullOrWhiteSpace(npc.CharacterId))
+                var authoredId = npc != null ? npc.AuthoredCharacterId : string.Empty;
+                if (npc == null || string.IsNullOrWhiteSpace(authoredId))
                 {
                     continue;
                 }
 
-                if (!seenNpcIds.Add(npc.CharacterId))
+                if (!seenNpcIds.Add(authoredId))
                 {
-                    duplicateNpcIds.Add(npc.CharacterId);
+                    duplicateNpcIds.Add(authoredId);
                     continue;
                 }
 
-                npcsById[npc.CharacterId] = npc;
+                npcsById[authoredId] = npc;
                 npcsByGridPosition[npc.GridPosition] = npc;
             }
 
@@ -194,6 +216,8 @@ namespace Weave.World
                 Debug.LogError($"Duplicate Character ID '{duplicateNpcId}'.", this);
                 npcsById.Remove(duplicateNpcId);
             }
+
+            ValidateLocationConfiguration();
 
             RebuildRuntimeLocations();
         }
@@ -273,9 +297,9 @@ namespace Weave.World
             foreach (var npc in npcs)
             {
                 if (npc == null ||
-                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
-                    (controlledCharacter != null && npc.CharacterId == controlledCharacter.CharacterId) ||
-                    !runState.Characters.TryGetValue(npc.CharacterId, out var state))
+                    string.IsNullOrWhiteSpace(npc.AuthoredCharacterId) ||
+                    (controlledCharacter != null && npc.AuthoredCharacterId == controlledCharacter.CharacterId) ||
+                    !runState.Characters.TryGetValue(npc.AuthoredCharacterId, out var state))
                 {
                     continue;
                 }
@@ -340,13 +364,13 @@ namespace Weave.World
             {
                 if (npc == null ||
                     !npc.InteractionAvailable ||
-                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
-                    npc.CharacterId == runState.ControlledCharacterId)
+                    string.IsNullOrWhiteSpace(npc.AuthoredCharacterId) ||
+                    npc.AuthoredCharacterId == runState.ControlledCharacterId)
                 {
                     continue;
                 }
 
-                if (!runState.Characters.TryGetValue(npc.CharacterId, out var npcState) || npcState.CurrentLocationId != locationId)
+                if (!runState.Characters.TryGetValue(npc.AuthoredCharacterId, out var npcState) || npcState.CurrentLocationId != locationId)
                 {
                     continue;
                 }
@@ -395,8 +419,8 @@ namespace Weave.World
             var cellPath = FindCellPath(originCell, destinationCell);
             if (cellPath.Count == 0)
             {
-                cellPath.Add(originCell);
-                cellPath.Add(destinationCell);
+                LogPathNotFound(originLocationId, destinationLocationId, originCell, destinationCell);
+                return new TravelPlan(new List<Vector2> { grid.GridToWorld(originCell) }, new List<float> { 0f }, MinimumDurationSeconds, false);
             }
 
             var waypoints = new List<Vector2>(cellPath.Count);
@@ -489,19 +513,19 @@ namespace Weave.World
                     continue;
                 }
 
-                if (string.IsNullOrWhiteSpace(npc.CharacterId))
+                if (string.IsNullOrWhiteSpace(npc.AuthoredCharacterId))
                 {
                     Debug.LogError($"NPC '{npc.name}' is missing a Character ID via CharacterDefinition.", npc);
                     continue;
                 }
 
-                if (seen.TryGetValue(npc.CharacterId, out var existing))
+                if (seen.TryGetValue(npc.AuthoredCharacterId, out var existing))
                 {
-                    Debug.LogError($"Duplicate Character ID '{npc.CharacterId}' on '{npc.name}' and '{existing.name}'.", this);
+                    Debug.LogError($"Duplicate Character ID '{npc.AuthoredCharacterId}' on '{npc.name}' and '{existing.name}'.", this);
                     continue;
                 }
 
-                seen.Add(npc.CharacterId, npc);
+                seen.Add(npc.AuthoredCharacterId, npc);
             }
         }
 
@@ -522,6 +546,12 @@ namespace Weave.World
             {
                 if (location == null || string.IsNullOrWhiteSpace(location.InstanceId))
                 {
+                    continue;
+                }
+
+                if (location.LocationDefinition == null)
+                {
+                    Debug.LogError($"Location '{location.name}' ({location.InstanceId}) is missing a LocationDefinition and cannot be added to runtime locations.", location);
                     continue;
                 }
 
@@ -560,7 +590,7 @@ namespace Weave.World
         {
             var task = ScriptableObject.CreateInstance<TaskDefinition>();
             task.hideFlags = HideFlags.HideAndDontSave;
-            SerializedFieldUtility.SetPrivateField(task, "taskId", $"talk::{npc.CharacterId}::{locationId}");
+            SerializedFieldUtility.SetPrivateField(task, "taskId", $"talk::{npc.AuthoredCharacterId}::{locationId}");
             SerializedFieldUtility.SetPrivateField(task, "displayName", $"Talk to {npc.DisplayName}");
             SerializedFieldUtility.SetPrivateField(task, "requiredLocation", null);
             SerializedFieldUtility.SetPrivateField(task, "requiredLocationId", locationId);
@@ -696,6 +726,69 @@ namespace Weave.World
 
             selectedCell = candidates[random.Next(0, candidates.Count)];
             return true;
+        }
+
+        private void ValidateSingleRegistry()
+        {
+            var registries = FindObjectsOfType<AuthoredVillageWorldRegistry>(true);
+            var registryCountInScene = 0;
+            for (var index = 0; index < registries.Length; index++)
+            {
+                if (registries[index] != null && registries[index].gameObject.scene == gameObject.scene)
+                {
+                    registryCountInScene++;
+                }
+            }
+
+            if (registryCountInScene > 1)
+            {
+                if (!warnedDuplicateRegistry)
+                {
+                    Debug.LogError("Multiple AuthoredVillageWorldRegistry components are active in this scene. Keep exactly one.", this);
+                    warnedDuplicateRegistry = true;
+                }
+            }
+            else
+            {
+                warnedDuplicateRegistry = false;
+            }
+        }
+
+        private void ValidateLocationConfiguration()
+        {
+            foreach (var location in locations)
+            {
+                if (location == null)
+                {
+                    continue;
+                }
+
+                var travelCell = location.TravelGridPosition;
+                if (!occupiedBuildingCells.TryGetValue(travelCell, out var occupant) || occupant == null)
+                {
+                    continue;
+                }
+
+                var invalidTarget = occupant == location
+                    ? "inside its own footprint"
+                    : $"inside '{occupant.name}' footprint";
+                Debug.LogError(
+                    $"Location '{location.name}' has invalid travel cell {travelCell} ({invalidTarget}). Move its TravelAnchor/TravelGridOffset to a traversable adjacent cell.",
+                    location);
+            }
+        }
+
+        private void LogPathNotFound(string originLocationId, string destinationLocationId, Vector2Int originCell, Vector2Int destinationCell)
+        {
+            var key = $"{originLocationId}->{destinationLocationId}";
+            if (!loggedPathNotFoundKeys.Add(key))
+            {
+                return;
+            }
+
+            Debug.LogError(
+                $"Path not found from '{originLocationId}' {originCell} to '{destinationLocationId}' {destinationCell}. Check building footprints and travel cells.",
+                this);
         }
 
         private bool CanPlaceFootprint(Vector2Int anchor, int width, int height, int minimumSpacing, HashSet<Vector2Int> occupied)
