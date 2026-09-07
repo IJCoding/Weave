@@ -728,7 +728,16 @@ namespace Weave.World
         private void ValidateSingleRegistry()
         {
             var registries = FindObjectsOfType<AuthoredVillageWorldRegistry>(true);
-            if (registries.Length > 1)
+            var registryCountInScene = 0;
+            for (var index = 0; index < registries.Length; index++)
+            {
+                if (registries[index] != null && registries[index].gameObject.scene == gameObject.scene)
+                {
+                    registryCountInScene++;
+                }
+            }
+
+            if (registryCountInScene > 1)
             {
                 if (!warnedDuplicateRegistry)
                 {

@@ -15,7 +15,7 @@ MonoBehaviour:
   locationId: lumberyard
   id: lumberyard
   displayName: Lumberyard
-  locationType: 4
+  locationType: 3
   buildingPrefab: {fileID: 100000, guid: 0ca1184fc9c54284a60594ee28d62ba3, type: 3}
   defaultTasks: []
   tags: []

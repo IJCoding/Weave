@@ -148,7 +148,7 @@ MonoBehaviour:
   instanceId: 
   displayName: Lumberyard
   visualLabel: Lumberyard
-  locationType: 4
+  locationType: 3
   locationDefinition: {fileID: 11400000, guid: e84f7e7dfde04ec19d1913ec49c4f4c0, type: 2}
   useDefaultTasks: 1
   availableTasks: []
