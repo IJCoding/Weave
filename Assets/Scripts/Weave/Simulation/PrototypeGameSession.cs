@@ -720,7 +720,7 @@ namespace Weave.Simulation
                 return true;
             }
 
-            if (plan.Waypoints != null && plan.Waypoints.Count >= 2)
+            if (plan.IsPathFound && plan.Waypoints != null && plan.Waypoints.Count >= 2)
             {
                 return true;
             }

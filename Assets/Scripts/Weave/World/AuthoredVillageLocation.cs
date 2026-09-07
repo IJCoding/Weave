@@ -51,7 +51,9 @@ namespace Weave.World
         [NonSerialized] private bool warnedMissingGrid;
         [NonSerialized] private bool warnedInvalidTravelCell;
 
-        public string InstanceId => string.IsNullOrWhiteSpace(instanceId) ? string.Empty : instanceId.Trim();
+        public string InstanceId => !string.IsNullOrWhiteSpace(instanceId)
+            ? instanceId.Trim()
+            : string.IsNullOrWhiteSpace(locationId) ? string.Empty : locationId.Trim();
         public string LocationId => InstanceId;
         public string DisplayName => string.IsNullOrWhiteSpace(displayName)
             ? locationDefinition != null && !string.IsNullOrWhiteSpace(locationDefinition.DisplayName)
@@ -178,7 +180,15 @@ namespace Weave.World
 
         protected override void Awake()
         {
-            locationId = InstanceId;
+            if (!string.IsNullOrWhiteSpace(instanceId))
+            {
+                locationId = instanceId.Trim();
+            }
+            else
+            {
+                locationId = string.IsNullOrWhiteSpace(locationId) ? string.Empty : locationId.Trim();
+            }
+
             base.Awake();
             EnsureReferences();
             ConfigureCollider();
@@ -189,7 +199,15 @@ namespace Weave.World
 
         protected override void OnValidate()
         {
-            locationId = InstanceId;
+            if (!string.IsNullOrWhiteSpace(instanceId))
+            {
+                locationId = instanceId.Trim();
+            }
+            else
+            {
+                locationId = string.IsNullOrWhiteSpace(locationId) ? string.Empty : locationId.Trim();
+            }
+
             base.OnValidate();
             EnsureReferences();
             ConfigureCollider();

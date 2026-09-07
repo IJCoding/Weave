@@ -20,11 +20,13 @@ namespace Weave.World
         [System.NonSerialized] private bool warnedMissingCharacterDefinition;
         [System.NonSerialized] private bool warnedEmptyCharacterId;
         [System.NonSerialized] private bool warnedMissingGrid;
+        [System.NonSerialized] private string fallbackCharacterId;
 
         public CharacterDefinition CharacterDefinition => characterDefinition;
-        public string CharacterId => characterDefinition != null && !string.IsNullOrWhiteSpace(characterDefinition.CharacterId)
+        public string AuthoredCharacterId => characterDefinition != null && !string.IsNullOrWhiteSpace(characterDefinition.CharacterId)
             ? characterDefinition.CharacterId.Trim()
             : string.Empty;
+        public string CharacterId => !string.IsNullOrWhiteSpace(AuthoredCharacterId) ? AuthoredCharacterId : ResolveFallbackCharacterId();
         public string DisplayName => !string.IsNullOrWhiteSpace(displayNameOverride)
             ? displayNameOverride
             : characterDefinition != null && !string.IsNullOrWhiteSpace(characterDefinition.DisplayName)
@@ -151,6 +153,23 @@ namespace Weave.World
             else
             {
                 warnedMissingGrid = false;
+            }
+
+            private string ResolveFallbackCharacterId()
+            {
+                if (!string.IsNullOrWhiteSpace(fallbackCharacterId))
+                {
+                    return fallbackCharacterId;
+                }
+
+                var source = string.IsNullOrWhiteSpace(gameObject.name) ? "npc" : gameObject.name;
+                fallbackCharacterId = source.Trim().Replace(' ', '_').ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(fallbackCharacterId))
+                {
+                    fallbackCharacterId = "npc";
+                }
+
+                return fallbackCharacterId;
             }
         }
     }

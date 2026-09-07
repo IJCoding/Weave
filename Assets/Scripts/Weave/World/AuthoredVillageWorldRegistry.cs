@@ -8,16 +8,18 @@ namespace Weave.World
 {
     public readonly struct TravelPlan
     {
-        public TravelPlan(List<Vector2> waypoints, List<float> cumulativeDurations, float totalDurationSeconds)
+        public TravelPlan(List<Vector2> waypoints, List<float> cumulativeDurations, float totalDurationSeconds, bool isPathFound = true)
         {
             Waypoints = waypoints ?? new List<Vector2>();
             CumulativeDurations = cumulativeDurations ?? new List<float>();
             TotalDurationSeconds = Mathf.Max(totalDurationSeconds, 0.01f);
+            IsPathFound = isPathFound;
         }
 
         public IReadOnlyList<Vector2> Waypoints { get; }
         public IReadOnlyList<float> CumulativeDurations { get; }
         public float TotalDurationSeconds { get; }
+        public bool IsPathFound { get; }
     }
 
     public sealed class AuthoredVillageWorldRegistry : MonoBehaviour
@@ -187,18 +189,19 @@ namespace Weave.World
 
             foreach (var npc in npcs)
             {
-                if (npc == null || string.IsNullOrWhiteSpace(npc.CharacterId))
+                var authoredId = npc != null ? npc.AuthoredCharacterId : string.Empty;
+                if (npc == null || string.IsNullOrWhiteSpace(authoredId))
                 {
                     continue;
                 }
 
-                if (!seenNpcIds.Add(npc.CharacterId))
+                if (!seenNpcIds.Add(authoredId))
                 {
-                    duplicateNpcIds.Add(npc.CharacterId);
+                    duplicateNpcIds.Add(authoredId);
                     continue;
                 }
 
-                npcsById[npc.CharacterId] = npc;
+                npcsById[authoredId] = npc;
                 npcsByGridPosition[npc.GridPosition] = npc;
             }
 
@@ -294,9 +297,9 @@ namespace Weave.World
             foreach (var npc in npcs)
             {
                 if (npc == null ||
-                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
-                    (controlledCharacter != null && npc.CharacterId == controlledCharacter.CharacterId) ||
-                    !runState.Characters.TryGetValue(npc.CharacterId, out var state))
+                    string.IsNullOrWhiteSpace(npc.AuthoredCharacterId) ||
+                    (controlledCharacter != null && npc.AuthoredCharacterId == controlledCharacter.CharacterId) ||
+                    !runState.Characters.TryGetValue(npc.AuthoredCharacterId, out var state))
                 {
                     continue;
                 }
@@ -361,13 +364,13 @@ namespace Weave.World
             {
                 if (npc == null ||
                     !npc.InteractionAvailable ||
-                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
-                    npc.CharacterId == runState.ControlledCharacterId)
+                    string.IsNullOrWhiteSpace(npc.AuthoredCharacterId) ||
+                    npc.AuthoredCharacterId == runState.ControlledCharacterId)
                 {
                     continue;
                 }
 
-                if (!runState.Characters.TryGetValue(npc.CharacterId, out var npcState) || npcState.CurrentLocationId != locationId)
+                if (!runState.Characters.TryGetValue(npc.AuthoredCharacterId, out var npcState) || npcState.CurrentLocationId != locationId)
                 {
                     continue;
                 }
@@ -417,7 +420,7 @@ namespace Weave.World
             if (cellPath.Count == 0)
             {
                 LogPathNotFound(originLocationId, destinationLocationId, originCell, destinationCell);
-                return new TravelPlan(new List<Vector2> { grid.GridToWorld(originCell) }, new List<float> { 0f }, MinimumDurationSeconds);
+                return new TravelPlan(new List<Vector2> { grid.GridToWorld(originCell) }, new List<float> { 0f }, MinimumDurationSeconds, false);
             }
 
             var waypoints = new List<Vector2>(cellPath.Count);
@@ -510,19 +513,19 @@ namespace Weave.World
                     continue;
                 }
 
-                if (string.IsNullOrWhiteSpace(npc.CharacterId))
+                if (string.IsNullOrWhiteSpace(npc.AuthoredCharacterId))
                 {
                     Debug.LogError($"NPC '{npc.name}' is missing a Character ID via CharacterDefinition.", npc);
                     continue;
                 }
 
-                if (seen.TryGetValue(npc.CharacterId, out var existing))
+                if (seen.TryGetValue(npc.AuthoredCharacterId, out var existing))
                 {
-                    Debug.LogError($"Duplicate Character ID '{npc.CharacterId}' on '{npc.name}' and '{existing.name}'.", this);
+                    Debug.LogError($"Duplicate Character ID '{npc.AuthoredCharacterId}' on '{npc.name}' and '{existing.name}'.", this);
                     continue;
                 }
 
-                seen.Add(npc.CharacterId, npc);
+                seen.Add(npc.AuthoredCharacterId, npc);
             }
         }
 
@@ -587,7 +590,7 @@ namespace Weave.World
         {
             var task = ScriptableObject.CreateInstance<TaskDefinition>();
             task.hideFlags = HideFlags.HideAndDontSave;
-            SerializedFieldUtility.SetPrivateField(task, "taskId", $"talk::{npc.CharacterId}::{locationId}");
+            SerializedFieldUtility.SetPrivateField(task, "taskId", $"talk::{npc.AuthoredCharacterId}::{locationId}");
             SerializedFieldUtility.SetPrivateField(task, "displayName", $"Talk to {npc.DisplayName}");
             SerializedFieldUtility.SetPrivateField(task, "requiredLocation", null);
             SerializedFieldUtility.SetPrivateField(task, "requiredLocationId", locationId);

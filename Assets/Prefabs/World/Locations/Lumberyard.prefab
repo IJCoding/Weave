@@ -160,7 +160,7 @@ MonoBehaviour:
   footprintWidth: 1
   footprintHeight: 1
   placementSource: 0
-  authoredSprite: {fileID: -783547862, guid: 18a03e4097846c447baf4ece8c658c5d, type: 3}
+  authoredSprite: {fileID: -8078966772632430244, guid: 18a03e4097846c447baf4ece8c658c5d, type: 3}
   visualRenderer: {fileID: 0}
   labelMesh: {fileID: 0}
   normalColor: {r: 1, g: 1, b: 1, a: 1}
