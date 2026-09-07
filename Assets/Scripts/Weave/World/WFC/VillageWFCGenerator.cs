@@ -235,20 +235,13 @@ namespace Weave.World.WFC
                     break;
                 }
 
-                var selectedTileIndex = PickWeightedTileIndex(cells[collapseX, collapseY], tileDefinitions, random);
-                if (selectedTileIndex < 0 || !cells[collapseX, collapseY].CollapseTo(selectedTileIndex))
+                if (!TryCollapseCell(cells, tileDefinitions, collapseX, collapseY, random, out var resolvedCells))
                 {
                     failureReason = "contradiction";
                     return false;
                 }
 
-                propagationQueue.Clear();
-                propagationQueue.Enqueue(new Vector2Int(collapseX, collapseY));
-                if (!Propagate(cells, tileDefinitions, propagationQueue))
-                {
-                    failureReason = "contradiction";
-                    return false;
-                }
+                cells = resolvedCells;
             }
 
             var resolvedGrid = new WFCPathTileDefinition[mapWidth, mapHeight];
@@ -532,35 +525,92 @@ namespace Weave.World.WFC
             return true;
         }
 
-        private int PickWeightedTileIndex(WFCGridCell cell, List<WFCPathTileDefinition> definitions, System.Random random)
+        private bool TryCollapseCell(
+            WFCGridCell[,] cells,
+            List<WFCPathTileDefinition> definitions,
+            int collapseX,
+            int collapseY,
+            System.Random random,
+            out WFCGridCell[,] resultingCells)
         {
-            var weightedTiles = new List<(int index, float weight)>();
-            var totalWeight = 0f;
+            resultingCells = null;
 
-            foreach (var tileIndex in cell.PossibleTileIndices)
+            var candidateOrder = BuildWeightedCandidateOrder(cells[collapseX, collapseY], definitions, random);
+            foreach (var candidateIndex in candidateOrder)
             {
-                var weight = Mathf.Max(0.0001f, definitions[tileIndex].Weight);
-                weightedTiles.Add((tileIndex, weight));
-                totalWeight += weight;
-            }
-
-            if (weightedTiles.Count == 0)
-            {
-                return -1;
-            }
-
-            var roll = (float)random.NextDouble() * totalWeight;
-            var cursor = 0f;
-            foreach (var item in weightedTiles)
-            {
-                cursor += item.weight;
-                if (roll <= cursor)
+                var trialCells = CloneCells(cells);
+                if (!trialCells[collapseX, collapseY].CollapseTo(candidateIndex))
                 {
-                    return item.index;
+                    continue;
+                }
+
+                var propagationQueue = new Queue<Vector2Int>();
+                propagationQueue.Enqueue(new Vector2Int(collapseX, collapseY));
+                if (Propagate(trialCells, definitions, propagationQueue))
+                {
+                    resultingCells = trialCells;
+                    return true;
                 }
             }
 
-            return weightedTiles[weightedTiles.Count - 1].index;
+            return false;
+        }
+
+        private static WFCGridCell[,] CloneCells(WFCGridCell[,] source)
+        {
+            var width = source.GetLength(0);
+            var height = source.GetLength(1);
+            var clone = new WFCGridCell[width, height];
+
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    clone[x, y] = new WFCGridCell(source[x, y].PossibleTileIndices);
+                }
+            }
+
+            return clone;
+        }
+
+        private static List<int> BuildWeightedCandidateOrder(
+            WFCGridCell cell,
+            List<WFCPathTileDefinition> definitions,
+            System.Random random)
+        {
+            var remaining = new List<(int index, float weight)>();
+            foreach (var tileIndex in cell.PossibleTileIndices)
+            {
+                remaining.Add((tileIndex, Mathf.Max(0.0001f, definitions[tileIndex].Weight)));
+            }
+
+            var ordered = new List<int>(remaining.Count);
+            while (remaining.Count > 0)
+            {
+                var totalWeight = 0f;
+                foreach (var item in remaining)
+                {
+                    totalWeight += item.weight;
+                }
+
+                var roll = (float)random.NextDouble() * totalWeight;
+                var cursor = 0f;
+                var selectedIndex = remaining.Count - 1;
+                for (var i = 0; i < remaining.Count; i++)
+                {
+                    cursor += remaining[i].weight;
+                    if (roll <= cursor)
+                    {
+                        selectedIndex = i;
+                        break;
+                    }
+                }
+
+                ordered.Add(remaining[selectedIndex].index);
+                remaining.RemoveAt(selectedIndex);
+            }
+
+            return ordered;
         }
 
         private bool IsAllowedByMapBorder(WFCPathTileDefinition tile, int x, int y)
