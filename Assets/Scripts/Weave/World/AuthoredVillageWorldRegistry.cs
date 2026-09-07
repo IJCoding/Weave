@@ -22,98 +22,61 @@ namespace Weave.World
 
     public sealed class AuthoredVillageWorldRegistry : MonoBehaviour
     {
-        private const float MinimumDurationSeconds = 0.01f;
-
-        private sealed class MinFrontier
+        [Serializable]
+        private sealed class GeneratedLocationRule
         {
-            private readonly List<Entry> entries = new List<Entry>();
+            public LocationDefinition Definition;
+            public int Count = 1;
+            public int MinimumSpacing = 0;
+        }
 
-            private readonly struct Entry
+        [Serializable]
+        private sealed class PathNode
+        {
+            public Vector2Int Cell;
+            public float Cost;
+
+            public PathNode(Vector2Int cell, float cost)
             {
-                public Entry(Vector2Int node, float priority)
-                {
-                    Node = node;
-                    Priority = priority;
-                }
-
-                public Vector2Int Node { get; }
-                public float Priority { get; }
-            }
-
-            public int Count => entries.Count;
-
-            public void Enqueue(Vector2Int node, float priority)
-            {
-                entries.Add(new Entry(node, priority));
-                var index = entries.Count - 1;
-
-                while (index > 0)
-                {
-                    var parentIndex = (index - 1) / 2;
-                    if (entries[parentIndex].Priority <= entries[index].Priority)
-                    {
-                        break;
-                    }
-
-                    (entries[parentIndex], entries[index]) = (entries[index], entries[parentIndex]);
-                    index = parentIndex;
-                }
-            }
-
-            public Vector2Int Dequeue()
-            {
-                var root = entries[0].Node;
-                var last = entries[entries.Count - 1];
-                entries.RemoveAt(entries.Count - 1);
-
-                if (entries.Count == 0)
-                {
-                    return root;
-                }
-
-                entries[0] = last;
-                var index = 0;
-                while (true)
-                {
-                    var left = index * 2 + 1;
-                    var right = left + 1;
-                    if (left >= entries.Count)
-                    {
-                        break;
-                    }
-
-                    var smallest = right < entries.Count && entries[right].Priority < entries[left].Priority
-                        ? right
-                        : left;
-                    if (entries[index].Priority <= entries[smallest].Priority)
-                    {
-                        break;
-                    }
-
-                    (entries[index], entries[smallest]) = (entries[smallest], entries[index]);
-                    index = smallest;
-                }
-
-                return root;
+                Cell = cell;
+                Cost = cost;
             }
         }
 
-        [SerializeField] private float pathGridCellSize = 0.5f;
-        [SerializeField] private float pathBoundsPadding = 2f;
+        private const float MinimumDurationSeconds = 0.01f;
+
+        [Header("Shared Grid")]
+        [SerializeField] private VillageGrid villageGrid;
+
+        [Header("Build Mode")]
+        [SerializeField] private VillageBuildMode buildMode = VillageBuildMode.Preset;
+        [SerializeField] private int generationSeed = 12345;
+        [SerializeField] private Vector2Int generationMin = new Vector2Int(-12, -12);
+        [SerializeField] private Vector2Int generationMax = new Vector2Int(12, 12);
+        [SerializeField] private List<GeneratedLocationRule> generatedLocationRules = new List<GeneratedLocationRule>();
 
         private readonly List<AuthoredVillageLocation> locations = new List<AuthoredVillageLocation>();
         private readonly List<AuthoredVillageRoadTile> roadTiles = new List<AuthoredVillageRoadTile>();
         private readonly List<AuthoredVillageNpc> npcs = new List<AuthoredVillageNpc>();
         private readonly Dictionary<string, AuthoredVillageLocation> locationsById = new Dictionary<string, AuthoredVillageLocation>();
         private readonly Dictionary<string, AuthoredVillageNpc> npcsById = new Dictionary<string, AuthoredVillageNpc>();
+        private readonly Dictionary<Vector2Int, AuthoredVillageRoadTile> roadsByGridPosition = new Dictionary<Vector2Int, AuthoredVillageRoadTile>();
+        private readonly Dictionary<Vector2Int, AuthoredVillageLocation> occupiedBuildingCells = new Dictionary<Vector2Int, AuthoredVillageLocation>();
+        private readonly Dictionary<Vector2Int, AuthoredVillageNpc> npcsByGridPosition = new Dictionary<Vector2Int, AuthoredVillageNpc>();
         private readonly Dictionary<string, LocationDefinition> runtimeLocationsById = new Dictionary<string, LocationDefinition>();
         private readonly List<LocationDefinition> runtimeLocations = new List<LocationDefinition>();
+        private readonly List<GameObject> generatedRuntimeObjects = new List<GameObject>();
 
+        public VillageBuildMode BuildMode => buildMode;
+        public VillageGrid SharedGrid => villageGrid != null ? villageGrid : Weave.World.VillageGrid.FindGrid(transform);
         public IReadOnlyList<AuthoredVillageLocation> Locations => locations;
         public IReadOnlyList<AuthoredVillageRoadTile> RoadTiles => roadTiles;
         public IReadOnlyList<AuthoredVillageNpc> Npcs => npcs;
+        public IReadOnlyDictionary<string, AuthoredVillageLocation> LocationsByInstanceId => locationsById;
         public IReadOnlyDictionary<string, AuthoredVillageLocation> LocationsById => locationsById;
+        public IReadOnlyDictionary<string, AuthoredVillageNpc> NpcsByCharacterId => npcsById;
         public IReadOnlyDictionary<string, AuthoredVillageNpc> NpcsById => npcsById;
+        public IReadOnlyDictionary<Vector2Int, AuthoredVillageRoadTile> RoadsByGridPosition => roadsByGridPosition;
 
         private void Awake()
         {
@@ -122,6 +85,11 @@ namespace Weave.World
 
         private void OnValidate()
         {
+            if (villageGrid == null)
+            {
+                villageGrid = Weave.World.VillageGrid.FindGrid(transform);
+            }
+
             RefreshWorld();
             ValidateUniqueLocationIds();
             ValidateUniqueNpcIds();
@@ -129,11 +97,28 @@ namespace Weave.World
 
         public void RefreshWorld()
         {
+            if (villageGrid == null)
+            {
+                villageGrid = Weave.World.VillageGrid.FindGrid(transform);
+            }
+
+            if (buildMode == VillageBuildMode.Generated)
+            {
+                RegenerateRuntimeLocations();
+            }
+            else
+            {
+                ClearGeneratedRuntimeObjects();
+            }
+
             locations.Clear();
             roadTiles.Clear();
             npcs.Clear();
             locationsById.Clear();
             npcsById.Clear();
+            roadsByGridPosition.Clear();
+            occupiedBuildingCells.Clear();
+            npcsByGridPosition.Clear();
 
             GetComponentsInChildren(true, locations);
             GetComponentsInChildren(true, roadTiles);
@@ -146,15 +131,35 @@ namespace Weave.World
 
             foreach (var location in locations)
             {
-                if (location == null || string.IsNullOrWhiteSpace(location.LocationId))
+                if (location == null || string.IsNullOrWhiteSpace(location.InstanceId))
                 {
                     continue;
                 }
 
-                if (!seenLocationIds.Add(location.LocationId))
+                if (!seenLocationIds.Add(location.InstanceId))
                 {
-                    duplicateLocationIds.Add(location.LocationId);
+                    duplicateLocationIds.Add(location.InstanceId);
+                    continue;
                 }
+
+                locationsById[location.InstanceId] = location;
+                foreach (var cell in location.EnumerateFootprintCells())
+                {
+                    if (!occupiedBuildingCells.ContainsKey(cell))
+                    {
+                        occupiedBuildingCells[cell] = location;
+                    }
+                }
+            }
+
+            foreach (var roadTile in roadTiles)
+            {
+                if (roadTile == null)
+                {
+                    continue;
+                }
+
+                roadsByGridPosition[roadTile.GridPosition] = roadTile;
             }
 
             foreach (var npc in npcs)
@@ -167,31 +172,23 @@ namespace Weave.World
                 if (!seenNpcIds.Add(npc.CharacterId))
                 {
                     duplicateNpcIds.Add(npc.CharacterId);
-                }
-            }
-
-            foreach (var location in locations)
-            {
-                if (location == null ||
-                    string.IsNullOrWhiteSpace(location.LocationId) ||
-                    duplicateLocationIds.Contains(location.LocationId))
-                {
-                    continue;
-                }
-
-                locationsById[location.LocationId] = location;
-            }
-
-            foreach (var npc in npcs)
-            {
-                if (npc == null ||
-                    string.IsNullOrWhiteSpace(npc.CharacterId) ||
-                    duplicateNpcIds.Contains(npc.CharacterId))
-                {
                     continue;
                 }
 
                 npcsById[npc.CharacterId] = npc;
+                npcsByGridPosition[npc.GridPosition] = npc;
+            }
+
+            foreach (var duplicateLocationId in duplicateLocationIds)
+            {
+                Debug.LogError($"Duplicate Location Instance ID '{duplicateLocationId}'.", this);
+                locationsById.Remove(duplicateLocationId);
+            }
+
+            foreach (var duplicateNpcId in duplicateNpcIds)
+            {
+                Debug.LogError($"Duplicate Character ID '{duplicateNpcId}'.", this);
+                npcsById.Remove(duplicateNpcId);
             }
 
             RebuildRuntimeLocations();
@@ -239,7 +236,7 @@ namespace Weave.World
                     continue;
                 }
 
-                foreach (var task in location.AvailableTasks)
+                foreach (var task in location.GetAllTasks())
                 {
                     if (task == null || !seen.Add(task))
                     {
@@ -314,7 +311,7 @@ namespace Weave.World
                 return boundTasks;
             }
 
-            foreach (var task in location.AvailableTasks)
+            foreach (var task in location.GetAllTasks())
             {
                 if (task == null)
                 {
@@ -366,70 +363,84 @@ namespace Weave.World
             RefreshIfNeeded();
             var originLocation = FindLocation(originLocationId);
             var destinationLocation = FindLocation(destinationLocationId);
-            var origin = originLocation != null ? originLocation.TravelAnchorPosition : Vector2.zero;
-            var destination = destinationLocation != null ? destinationLocation.TravelAnchorPosition : origin;
+            var grid = SharedGrid;
 
-            if (originLocationId == destinationLocationId || Vector2.Distance(origin, destination) <= 0.001f)
+            if (grid == null || originLocation == null || destinationLocation == null)
             {
-                return new TravelPlan(
-                    new List<Vector2> { destination },
-                    new List<float> { Mathf.Max(sameLocationPreparationSeconds, MinimumDurationSeconds) },
-                    Mathf.Max(sameLocationPreparationSeconds, MinimumDurationSeconds));
+                var originFallback = originLocation != null ? originLocation.TravelAnchorPosition : Vector2.zero;
+                var destinationFallback = destinationLocation != null ? destinationLocation.TravelAnchorPosition : originFallback;
+                var durationFallback = Mathf.Max(Vector2.Distance(originFallback, destinationFallback) * secondsPerDistanceUnit * carryPenaltyMultiplier, MinimumDurationSeconds);
+                return new TravelPlan(new List<Vector2> { originFallback, destinationFallback }, new List<float> { 0f, durationFallback }, durationFallback);
             }
 
-            var rawPath = FindPath(origin, destination, Mathf.Max(pathGridCellSize, 0.25f), secondsPerDistanceUnit);
-            if (rawPath.Count == 0)
+            var originCell = originLocation.TravelGridPosition;
+            var destinationCell = destinationLocation.TravelGridPosition;
+            if (originCell == destinationCell)
             {
-                rawPath.Add(origin);
-                rawPath.Add(destination);
+                var same = Mathf.Max(sameLocationPreparationSeconds, MinimumDurationSeconds);
+                var point = grid.GridToWorld(destinationCell);
+                return new TravelPlan(new List<Vector2> { point }, new List<float> { same }, same);
             }
 
-            if (rawPath[0] != origin)
+            var cellPath = FindCellPath(originCell, destinationCell);
+            if (cellPath.Count == 0)
             {
-                rawPath.Insert(0, origin);
+                cellPath.Add(originCell);
+                cellPath.Add(destinationCell);
             }
 
-            if (rawPath[rawPath.Count - 1] != destination)
+            var waypoints = new List<Vector2>(cellPath.Count);
+            foreach (var cell in cellPath)
             {
-                rawPath.Add(destination);
+                waypoints.Add(grid.GridToWorld(cell));
             }
 
-            var simplified = SimplifyPath(rawPath);
-            var cumulative = new List<float>(simplified.Count);
+            var cumulative = new List<float>(waypoints.Count) { 0f };
             var totalDuration = 0f;
-
-            for (var index = 0; index < simplified.Count; index++)
+            for (var i = 1; i < cellPath.Count; i++)
             {
-                if (index == 0)
-                {
-                    cumulative.Add(0f);
-                    continue;
-                }
-
-                var previous = simplified[index - 1];
-                var current = simplified[index];
-                var segmentDistance = Vector2.Distance(previous, current);
-                var terrainMultiplier = GetMovementMultiplierAt((previous + current) * 0.5f);
-                var segmentDuration = segmentDistance * Mathf.Max(secondsPerDistanceUnit, MinimumDurationSeconds) * Mathf.Max(carryPenaltyMultiplier, 1f) / Mathf.Max(terrainMultiplier, 1f);
+                var from = cellPath[i - 1];
+                var to = cellPath[i];
+                var terrainMultiplier = Mathf.Max(1f, GetRoadMovementMultiplierForSegment(from, to));
+                var segmentDistance = Vector2.Distance(waypoints[i - 1], waypoints[i]);
+                var segmentDuration = segmentDistance * Mathf.Max(secondsPerDistanceUnit, MinimumDurationSeconds) * Mathf.Max(carryPenaltyMultiplier, 1f) / terrainMultiplier;
                 totalDuration += Mathf.Max(segmentDuration, MinimumDurationSeconds);
                 cumulative.Add(totalDuration);
             }
 
-            return new TravelPlan(simplified, cumulative, Mathf.Max(totalDuration, MinimumDurationSeconds));
+            return new TravelPlan(waypoints, cumulative, Mathf.Max(totalDuration, MinimumDurationSeconds));
         }
 
         public float GetMovementMultiplierAt(Vector2 worldPoint)
         {
-            var best = 1f;
-            foreach (var roadTile in roadTiles)
+            var grid = SharedGrid;
+            if (grid == null)
             {
-                if (roadTile != null && roadTile.Contains(worldPoint))
-                {
-                    best = Mathf.Max(best, roadTile.MovementMultiplier);
-                }
+                return 1f;
             }
 
-            return best;
+            var cell = grid.WorldToGrid(worldPoint);
+            if (roadsByGridPosition.TryGetValue(cell, out var road) && road != null)
+            {
+                return Mathf.Max(1f, road.MovementMultiplier);
+            }
+
+            return 1f;
+        }
+
+        public bool IsRoadCell(Vector2Int cell)
+        {
+            return roadsByGridPosition.ContainsKey(cell);
+        }
+
+        public bool IsBuildingCellBlocked(Vector2Int cell, Vector2Int origin, Vector2Int destination)
+        {
+            if (!occupiedBuildingCells.TryGetValue(cell, out var owner) || owner == null)
+            {
+                return false;
+            }
+
+            return cell != origin && cell != destination;
         }
 
         public void ValidateUniqueLocationIds()
@@ -442,19 +453,19 @@ namespace Weave.World
                     continue;
                 }
 
-                if (string.IsNullOrWhiteSpace(location.LocationId))
+                if (string.IsNullOrWhiteSpace(location.InstanceId))
                 {
-                    Debug.LogError($"Location '{location.name}' is missing a Location ID.", location);
+                    Debug.LogError($"Location '{location.name}' is missing an Instance ID.", location);
                     continue;
                 }
 
-                if (seen.TryGetValue(location.LocationId, out var existing))
+                if (seen.TryGetValue(location.InstanceId, out var existing))
                 {
-                    Debug.LogError($"Duplicate Location ID '{location.LocationId}' on '{location.name}' and '{existing.name}'.", this);
+                    Debug.LogError($"Duplicate Location Instance ID '{location.InstanceId}' on '{location.name}' and '{existing.name}'.", this);
                     continue;
                 }
 
-                seen.Add(location.LocationId, location);
+                seen.Add(location.InstanceId, location);
             }
         }
 
@@ -499,14 +510,14 @@ namespace Weave.World
 
             foreach (var location in locationsById.Values)
             {
-                if (location == null || string.IsNullOrWhiteSpace(location.LocationId))
+                if (location == null || string.IsNullOrWhiteSpace(location.InstanceId))
                 {
                     continue;
                 }
 
                 var runtimeDefinition = location.CreateRuntimeDefinition();
                 runtimeLocations.Add(runtimeDefinition);
-                runtimeLocationsById[location.LocationId] = runtimeDefinition;
+                runtimeLocationsById[location.InstanceId] = runtimeDefinition;
             }
         }
 
@@ -555,53 +566,183 @@ namespace Weave.World
             return task;
         }
 
-        private List<Vector2> FindPath(Vector2 origin, Vector2 destination, float cellSize, float secondsPerDistanceUnit)
+        private void RegenerateRuntimeLocations()
         {
-            var bounds = GetTraversalBounds(origin, destination);
-            var width = Mathf.Max(2, Mathf.CeilToInt(bounds.size.x / cellSize) + 1);
-            var height = Mathf.Max(2, Mathf.CeilToInt(bounds.size.y / cellSize) + 1);
-            if (width * height > 40000)
+            if (!Application.isPlaying)
             {
-                return new List<Vector2> { origin, destination };
+                return;
             }
 
-            var originIndex = WorldToGrid(origin, bounds.min, cellSize);
-            var destinationIndex = WorldToGrid(destination, bounds.min, cellSize);
-            var frontier = new MinFrontier();
-            var cameFrom = new Dictionary<Vector2Int, Vector2Int>();
-            var gScore = new Dictionary<Vector2Int, float> { [originIndex] = 0f };
-            var fScore = new Dictionary<Vector2Int, float> { [originIndex] = Heuristic(originIndex, destinationIndex, cellSize, secondsPerDistanceUnit) };
-            var closed = new HashSet<Vector2Int>();
-            frontier.Enqueue(originIndex, fScore[originIndex]);
-
-            while (frontier.Count > 0)
+            ClearGeneratedRuntimeObjects();
+            var grid = SharedGrid;
+            if (grid == null)
             {
-                var current = frontier.Dequeue();
-                if (closed.Contains(current))
+                return;
+            }
+
+            var random = new System.Random(generationSeed);
+            var occupied = new HashSet<Vector2Int>();
+            var existingLocations = new List<AuthoredVillageLocation>();
+            GetComponentsInChildren(true, existingLocations);
+            foreach (var existing in existingLocations)
+            {
+                if (existing == null || existing.PlacementSource != LocationPlacementSource.Preset)
                 {
                     continue;
                 }
 
-                if (current == destinationIndex)
+                foreach (var cell in existing.EnumerateFootprintCells())
                 {
-                    return ReconstructPath(cameFrom, current, bounds.min, cellSize, origin, destination);
+                    occupied.Add(cell);
+                }
+            }
+
+            var sequenceByDefinition = new Dictionary<string, int>();
+            foreach (var rule in generatedLocationRules)
+            {
+                if (rule == null || rule.Definition == null || rule.Count <= 0)
+                {
+                    continue;
                 }
 
-                closed.Add(current);
-
-                foreach (var neighbor in EnumerateNeighbors(current, width, height))
+                var baseId = string.IsNullOrWhiteSpace(rule.Definition.Id) ? rule.Definition.name.ToLowerInvariant() : rule.Definition.Id;
+                if (!sequenceByDefinition.ContainsKey(baseId))
                 {
-                    if (closed.Contains(neighbor))
+                    sequenceByDefinition[baseId] = 0;
+                }
+
+                var footprintWidth = rule.Definition.FootprintWidth;
+                var footprintHeight = rule.Definition.FootprintHeight;
+
+                for (var i = 0; i < rule.Count; i++)
+                {
+                    if (!TryFindFreeCell(random, occupied, footprintWidth, footprintHeight, rule.MinimumSpacing, out var selectedCell))
+                    {
+                        break;
+                    }
+
+                    sequenceByDefinition[baseId]++;
+                    var instanceId = $"{baseId}_{sequenceByDefinition[baseId]}";
+                    var go = rule.Definition.BuildingPrefab != null
+                        ? Instantiate(rule.Definition.BuildingPrefab, transform)
+                        : new GameObject(rule.Definition.DisplayName);
+                    go.name = rule.Definition.DisplayName;
+                    var location = go.GetComponent<AuthoredVillageLocation>();
+                    if (location == null)
+                    {
+                        location = go.AddComponent<AuthoredVillageLocation>();
+                    }
+
+                    location.ConfigureGenerated(instanceId, rule.Definition, selectedCell);
+                    generatedRuntimeObjects.Add(go);
+                    for (var x = 0; x < footprintWidth; x++)
+                    {
+                        for (var y = 0; y < footprintHeight; y++)
+                        {
+                            occupied.Add(selectedCell + new Vector2Int(x, y));
+                        }
+                    }
+                }
+            }
+        }
+
+        private void ClearGeneratedRuntimeObjects()
+        {
+            for (var i = 0; i < generatedRuntimeObjects.Count; i++)
+            {
+                var instance = generatedRuntimeObjects[i];
+                if (instance == null)
+                {
+                    continue;
+                }
+
+                Destroy(instance);
+            }
+
+            generatedRuntimeObjects.Clear();
+        }
+
+        private bool TryFindFreeCell(System.Random random, HashSet<Vector2Int> occupied, int width, int height, int minimumSpacing, out Vector2Int selectedCell)
+        {
+            var candidates = new List<Vector2Int>();
+            for (var x = generationMin.x; x <= generationMax.x; x++)
+            {
+                for (var y = generationMin.y; y <= generationMax.y; y++)
+                {
+                    var candidate = new Vector2Int(x, y);
+                    if (CanPlaceFootprint(candidate, width, height, minimumSpacing, occupied))
+                    {
+                        candidates.Add(candidate);
+                    }
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                selectedCell = default;
+                return false;
+            }
+
+            selectedCell = candidates[random.Next(0, candidates.Count)];
+            return true;
+        }
+
+        private bool CanPlaceFootprint(Vector2Int anchor, int width, int height, int minimumSpacing, HashSet<Vector2Int> occupied)
+        {
+            for (var x = -minimumSpacing; x < width + minimumSpacing; x++)
+            {
+                for (var y = -minimumSpacing; y < height + minimumSpacing; y++)
+                {
+                    var testCell = anchor + new Vector2Int(x, y);
+                    if (occupied.Contains(testCell))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private List<Vector2Int> FindCellPath(Vector2Int origin, Vector2Int destination)
+        {
+            GetSearchBounds(origin, destination, out var min, out var max);
+            var frontier = new List<PathNode> { new PathNode(origin, 0f) };
+            var cameFrom = new Dictionary<Vector2Int, Vector2Int>();
+            var gScore = new Dictionary<Vector2Int, float> { [origin] = 0f };
+            var closed = new HashSet<Vector2Int>();
+            var safetyCounter = 0;
+
+            while (frontier.Count > 0 && safetyCounter++ < 10000)
+            {
+                frontier.Sort((a, b) => a.Cost.CompareTo(b.Cost));
+                var current = frontier[0].Cell;
+                frontier.RemoveAt(0);
+                if (current == destination)
+                {
+                    return ReconstructCellPath(cameFrom, current);
+                }
+
+                if (!closed.Add(current))
+                {
+                    continue;
+                }
+
+                foreach (var neighbor in EnumerateOrthogonalNeighbors(current))
+                {
+                    if (closed.Contains(neighbor) ||
+                        neighbor.x < min.x ||
+                        neighbor.y < min.y ||
+                        neighbor.x > max.x ||
+                        neighbor.y > max.y ||
+                        IsBuildingCellBlocked(neighbor, origin, destination))
                     {
                         continue;
                     }
 
-                    var currentPoint = GridToWorld(current, bounds.min, cellSize);
-                    var neighborPoint = GridToWorld(neighbor, bounds.min, cellSize);
-                    var segmentDistance = Vector2.Distance(currentPoint, neighborPoint);
-                    var multiplier = GetMovementMultiplierAt((currentPoint + neighborPoint) * 0.5f);
-                    var tentative = gScore[current] + segmentDistance * Mathf.Max(secondsPerDistanceUnit, MinimumDurationSeconds) / Mathf.Max(multiplier, 1f);
-
+                    var roadMultiplier = Mathf.Max(1f, GetRoadMovementMultiplierForSegment(current, neighbor));
+                    var stepCost = 1f / roadMultiplier;
+                    var tentative = gScore[current] + stepCost;
                     if (gScore.TryGetValue(neighbor, out var existing) && tentative >= existing)
                     {
                         continue;
@@ -609,18 +750,18 @@ namespace Weave.World
 
                     cameFrom[neighbor] = current;
                     gScore[neighbor] = tentative;
-                    fScore[neighbor] = tentative + Heuristic(neighbor, destinationIndex, cellSize, secondsPerDistanceUnit);
-                    frontier.Enqueue(neighbor, fScore[neighbor]);
+                    var priority = tentative + ManhattanDistance(neighbor, destination);
+                    frontier.Add(new PathNode(neighbor, priority));
                 }
             }
 
-            return new List<Vector2> { origin, destination };
+            return new List<Vector2Int>();
         }
 
-        private Bounds GetTraversalBounds(Vector2 origin, Vector2 destination)
+        private void GetSearchBounds(Vector2Int origin, Vector2Int destination, out Vector2Int min, out Vector2Int max)
         {
-            var min = Vector2.Min(origin, destination);
-            var max = Vector2.Max(origin, destination);
+            min = Vector2Int.Min(origin, destination);
+            max = Vector2Int.Max(origin, destination);
 
             foreach (var location in locations)
             {
@@ -629,113 +770,67 @@ namespace Weave.World
                     continue;
                 }
 
-                var bounds = location.GetBounds();
-                min = Vector2.Min(min, bounds.min);
-                max = Vector2.Max(max, bounds.max);
-            }
-
-            foreach (var roadTile in roadTiles)
-            {
-                if (roadTile == null)
+                foreach (var cell in location.EnumerateFootprintCells())
                 {
-                    continue;
+                    min = Vector2Int.Min(min, cell);
+                    max = Vector2Int.Max(max, cell);
                 }
 
-                min = Vector2.Min(min, roadTile.Bounds.min);
-                max = Vector2.Max(max, roadTile.Bounds.max);
+                min = Vector2Int.Min(min, location.TravelGridPosition);
+                max = Vector2Int.Max(max, location.TravelGridPosition);
             }
 
-            var padding = Vector2.one * Mathf.Max(0.5f, pathBoundsPadding);
-            min -= padding;
-            max += padding;
-            return new Bounds((min + max) * 0.5f, max - min);
-        }
-
-        private static Vector2Int WorldToGrid(Vector2 point, Vector2 min, float cellSize)
-        {
-            return new Vector2Int(
-                Mathf.RoundToInt((point.x - min.x) / cellSize),
-                Mathf.RoundToInt((point.y - min.y) / cellSize));
-        }
-
-        private static Vector2 GridToWorld(Vector2Int grid, Vector2 min, float cellSize)
-        {
-            return min + new Vector2(grid.x * cellSize, grid.y * cellSize);
-        }
-
-        private static float Heuristic(Vector2Int current, Vector2Int destination, float cellSize, float secondsPerDistanceUnit)
-        {
-            return Vector2Int.Distance(current, destination) * cellSize * Mathf.Max(secondsPerDistanceUnit, MinimumDurationSeconds);
-        }
-
-        private static IEnumerable<Vector2Int> EnumerateNeighbors(Vector2Int origin, int width, int height)
-        {
-            for (var dx = -1; dx <= 1; dx++)
+            foreach (var roadCell in roadsByGridPosition.Keys)
             {
-                for (var dy = -1; dy <= 1; dy++)
-                {
-                    if (dx == 0 && dy == 0)
-                    {
-                        continue;
-                    }
-
-                    var candidate = new Vector2Int(origin.x + dx, origin.y + dy);
-                    if (candidate.x < 0 || candidate.y < 0 || candidate.x >= width || candidate.y >= height)
-                    {
-                        continue;
-                    }
-
-                    yield return candidate;
-                }
+                min = Vector2Int.Min(min, roadCell);
+                max = Vector2Int.Max(max, roadCell);
             }
+
+            var padding = 6;
+            min -= new Vector2Int(padding, padding);
+            max += new Vector2Int(padding, padding);
         }
 
-        private static List<Vector2> ReconstructPath(
-            Dictionary<Vector2Int, Vector2Int> cameFrom,
-            Vector2Int current,
-            Vector2 min,
-            float cellSize,
-            Vector2 origin,
-            Vector2 destination)
+        private float GetRoadMovementMultiplierForSegment(Vector2Int from, Vector2Int to)
         {
-            var path = new List<Vector2> { destination };
-            var cursor = current;
-            path.Add(GridToWorld(cursor, min, cellSize));
-
-            while (cameFrom.TryGetValue(cursor, out var previous))
+            var best = 1f;
+            if (roadsByGridPosition.TryGetValue(from, out var fromRoad) && fromRoad != null)
             {
-                cursor = previous;
-                path.Add(GridToWorld(cursor, min, cellSize));
+                best = Mathf.Max(best, fromRoad.MovementMultiplier);
             }
 
-            path.Add(origin);
+            if (roadsByGridPosition.TryGetValue(to, out var toRoad) && toRoad != null)
+            {
+                best = Mathf.Max(best, toRoad.MovementMultiplier);
+            }
+
+            return best;
+        }
+
+        private static int ManhattanDistance(Vector2Int a, Vector2Int b)
+        {
+            return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
+        }
+
+        private static IEnumerable<Vector2Int> EnumerateOrthogonalNeighbors(Vector2Int origin)
+        {
+            yield return origin + Vector2Int.up;
+            yield return origin + Vector2Int.down;
+            yield return origin + Vector2Int.left;
+            yield return origin + Vector2Int.right;
+        }
+
+        private static List<Vector2Int> ReconstructCellPath(Dictionary<Vector2Int, Vector2Int> cameFrom, Vector2Int current)
+        {
+            var path = new List<Vector2Int> { current };
+            while (cameFrom.TryGetValue(current, out var previous))
+            {
+                current = previous;
+                path.Add(current);
+            }
+
             path.Reverse();
             return path;
-        }
-
-        private static List<Vector2> SimplifyPath(List<Vector2> path)
-        {
-            if (path.Count <= 2)
-            {
-                return path;
-            }
-
-            var simplified = new List<Vector2> { path[0] };
-            var previousDirection = (path[1] - path[0]).normalized;
-
-            for (var index = 1; index < path.Count - 1; index++)
-            {
-                var nextDirection = (path[index + 1] - path[index]).normalized;
-                if (Vector2.Dot(previousDirection, nextDirection) < 0.999f)
-                {
-                    simplified.Add(path[index]);
-                }
-
-                previousDirection = nextDirection;
-            }
-
-            simplified.Add(path[path.Count - 1]);
-            return simplified;
         }
     }
 }

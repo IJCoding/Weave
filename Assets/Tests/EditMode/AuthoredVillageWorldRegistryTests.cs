@@ -31,18 +31,19 @@ namespace Weave.Tests.EditMode
             var root = new GameObject("World");
             try
             {
+                root.AddComponent<VillageGrid>();
                 var registry = root.AddComponent<AuthoredVillageWorldRegistry>();
-                var home = CreateLocation(root.transform, "home", Vector2.zero);
-                var mine = CreateLocation(root.transform, "mine", new Vector2(2f, 2f));
-                CreateRoad(root.transform, new Vector2(0f, 1f));
-                CreateRoad(root.transform, new Vector2(0f, 2f));
-                CreateRoad(root.transform, new Vector2(1f, 2f));
-                CreateRoad(root.transform, new Vector2(2f, 2f));
+                var home = CreateLocation(root.transform, "home", Vector2.zero, new Vector2Int(0, 0), new Vector2Int(0, 0));
+                var mine = CreateLocation(root.transform, "mine", new Vector2(2f, 2f), new Vector2Int(2, 2), new Vector2Int(0, 0));
+                CreateRoad(root.transform, new Vector2Int(0, 1));
+                CreateRoad(root.transform, new Vector2Int(0, 2));
+                CreateRoad(root.transform, new Vector2Int(1, 2));
+                CreateRoad(root.transform, new Vector2Int(2, 2));
 
                 registry.RefreshWorld();
                 var plan = registry.BuildTravelPlan("home", "mine", 1f, 1f, 0.1f);
 
-                Assert.That(plan.TotalDurationSeconds, Is.LessThan(Vector2.Distance(Vector2.zero, new Vector2(2f, 2f))));
+                Assert.That(plan.TotalDurationSeconds, Is.LessThan(4f));
                 Assert.That(plan.Waypoints.Count, Is.GreaterThan(2));
             }
             finally
@@ -57,9 +58,10 @@ namespace Weave.Tests.EditMode
             var root = new GameObject("World");
             try
             {
+                root.AddComponent<VillageGrid>();
                 var registry = root.AddComponent<AuthoredVillageWorldRegistry>();
-                var home = CreateLocation(root.transform, "home", Vector2.zero);
-                var mine = CreateLocation(root.transform, "mine", new Vector2(2f, 0f));
+                var home = CreateLocation(root.transform, "home", Vector2.zero, new Vector2Int(0, 0), new Vector2Int(0, 0));
+                var mine = CreateLocation(root.transform, "mine", new Vector2(2f, 0f), new Vector2Int(2, 0), new Vector2Int(0, 0));
                 CreateNpc(root.transform, "mina", home, home);
                 CreateNpc(root.transform, "rowan", mine, mine);
                 registry.RefreshWorld();
@@ -81,6 +83,37 @@ namespace Weave.Tests.EditMode
                 Assert.That(talkTasks, Has.Count.EqualTo(1));
                 Assert.That(talkTasks[0].DisplayName, Is.EqualTo("Talk to Mina"));
             }
+
+            [Test]
+            public void BuildTravelPlan_AvoidsBuildingFootprintCells()
+            {
+                var root = new GameObject("World");
+                try
+                {
+                    root.AddComponent<VillageGrid>();
+                    var registry = root.AddComponent<AuthoredVillageWorldRegistry>();
+                    CreateLocation(root.transform, "home", Vector2.zero, new Vector2Int(0, 0), new Vector2Int(0, 0));
+                    CreateLocation(root.transform, "mine", Vector2.zero, new Vector2Int(4, 0), new Vector2Int(0, 0));
+                    var blocker = CreateLocation(root.transform, "house", Vector2.zero, new Vector2Int(2, 0), new Vector2Int(0, 0));
+                    SerializedFieldUtility.SetPrivateField(blocker, "footprintWidth", 2);
+                    SerializedFieldUtility.SetPrivateField(blocker, "footprintHeight", 1);
+
+                    registry.RefreshWorld();
+                    var plan = registry.BuildTravelPlan("home", "mine", 1f, 1f, 0.1f);
+
+                    Assert.That(plan.Waypoints.Count, Is.GreaterThan(2));
+                    foreach (var point in plan.Waypoints)
+                    {
+                        var cell = registry.SharedGrid.WorldToGrid(point);
+                        Assert.That(cell, Is.Not.EqualTo(new Vector2Int(2, 0)));
+                        Assert.That(cell, Is.Not.EqualTo(new Vector2Int(3, 0)));
+                    }
+                }
+                finally
+                {
+                    Object.DestroyImmediate(root);
+                }
+            }
             finally
             {
                 Object.DestroyImmediate(root);
@@ -94,16 +127,26 @@ namespace Weave.Tests.EditMode
             gameObject.transform.position = position;
             var location = gameObject.AddComponent<AuthoredVillageLocation>();
             SerializedFieldUtility.SetPrivateField(location, "locationId", id);
+            SerializedFieldUtility.SetPrivateField(location, "instanceId", id);
             SerializedFieldUtility.SetPrivateField(location, "displayName", id);
+            location.SetGridPosition(new Vector2Int(Mathf.RoundToInt(position.x), Mathf.RoundToInt(position.y)));
             return location;
         }
 
-        private static void CreateRoad(Transform parent, Vector2 position)
+        private static AuthoredVillageLocation CreateLocation(Transform parent, string id, Vector2 position, Vector2Int gridPosition, Vector2Int travelOffset)
+        {
+            var location = CreateLocation(parent, id, position);
+            SerializedFieldUtility.SetPrivateField(location, "travelGridOffset", travelOffset);
+            location.SetGridPosition(gridPosition);
+            return location;
+        }
+
+        private static void CreateRoad(Transform parent, Vector2Int gridPosition)
         {
             var gameObject = new GameObject("Road");
             gameObject.transform.SetParent(parent, false);
-            gameObject.transform.position = position;
-            gameObject.AddComponent<AuthoredVillageRoadTile>();
+            var road = gameObject.AddComponent<AuthoredVillageRoadTile>();
+            road.SetGridPosition(gridPosition);
         }
 
         private static AuthoredVillageNpc CreateNpc(Transform parent, string id, AuthoredVillageLocation starting, AuthoredVillageLocation home)
