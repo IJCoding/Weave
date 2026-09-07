@@ -262,6 +262,11 @@ namespace Weave.Simulation
 
             generatedTasks[task.TaskId] = task;
             var plan = BuildTravelPlan(characterState.CurrentLocationId, task.RequiredLocationId, true);
+            if (!CanExecuteTravelPlan(characterState.CurrentLocationId, task.RequiredLocationId, plan))
+            {
+                return default;
+            }
+
             var command = simulation.StartTravel(runState, character, task, plan.TotalDurationSeconds);
             if (!string.IsNullOrEmpty(command.CharacterId))
             {
@@ -289,6 +294,11 @@ namespace Weave.Simulation
 
             var characterState = runState.GetCharacter(character.CharacterId);
             var plan = BuildTravelPlan(characterState.CurrentLocationId, destination.LocationId, false);
+            if (!CanExecuteTravelPlan(characterState.CurrentLocationId, destination.LocationId, plan))
+            {
+                return default;
+            }
+
             var command = simulation.StartTravelToLocation(runState, character, destination.LocationId, plan.TotalDurationSeconds);
             if (!string.IsNullOrEmpty(command.CharacterId))
             {
@@ -701,6 +711,24 @@ namespace Weave.Simulation
                 ? SameLocationPreparationSeconds
                 : Mathf.Max(distance * SecondsPerDistanceUnit * GetCarryPenaltyMultiplier(runState.GetCharacter(runState.ControlledCharacterId)), MinimumDurationSeconds);
             return new TravelPlan(new List<Vector2> { origin, destination }, new List<float> { 0f, duration }, duration);
+        }
+
+        private bool CanExecuteTravelPlan(string originLocationId, string destinationLocationId, TravelPlan plan)
+        {
+            if (originLocationId == destinationLocationId)
+            {
+                return true;
+            }
+
+            if (plan.Waypoints != null && plan.Waypoints.Count >= 2)
+            {
+                return true;
+            }
+
+            Debug.LogError(
+                $"Unable to start travel from '{originLocationId}' to '{destinationLocationId}' because no valid path was found.",
+                this);
+            return false;
         }
 
         private float GetCarryPenaltyMultiplier(CharacterState characterState)

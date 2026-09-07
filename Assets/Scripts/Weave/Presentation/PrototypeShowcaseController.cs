@@ -113,6 +113,27 @@ namespace Weave.Presentation
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(controlledCharacter.CharacterId))
+            {
+                Debug.LogError("Controlled character must have a non-empty CharacterId.", this);
+                enabled = false;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(controlledCharacter.HomeLocationId))
+            {
+                Debug.LogError($"Controlled character '{controlledCharacter.CharacterId}' is missing HomeLocationId.", this);
+                enabled = false;
+                return;
+            }
+
+            if (worldRegistry.FindLocation(controlledCharacter.HomeLocationId) == null)
+            {
+                Debug.LogError($"Controlled character home location '{controlledCharacter.HomeLocationId}' was not found in AuthoredVillageWorldRegistry.", this);
+                enabled = false;
+                return;
+            }
+
             session.SetAuthoredWorld(worldRegistry);
             session.Configure(
                 scenario.CalendarDefinition,
@@ -253,9 +274,9 @@ namespace Weave.Presentation
 
         private void BuildPopup(RectTransform root)
         {
-            popupOverlay = CreatePanel("Popup Overlay", root, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.6f)).gameObject;
+            popupOverlay = CreatePanel("Popup Overlay", root, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.6f), true).gameObject;
             popupOverlay.SetActive(false);
-            var panel = CreatePanel("Popup Panel", popupOverlay.transform, new Vector2(0.22f, 0.2f), new Vector2(0.78f, 0.8f), Vector2.zero, Vector2.zero, new Color(0.10f, 0.12f, 0.16f, 0.98f));
+            var panel = CreatePanel("Popup Panel", popupOverlay.transform, new Vector2(0.22f, 0.2f), new Vector2(0.78f, 0.8f), Vector2.zero, Vector2.zero, new Color(0.10f, 0.12f, 0.16f, 0.98f), true);
             popupTitleText = CreateText("Popup Title", panel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(24f, -56f), new Vector2(-24f, -16f), string.Empty, 26, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
             popupSourceText = CreateText("Popup Source", panel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(24f, -92f), new Vector2(-24f, -60f), string.Empty, 18, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.44f, 0.77f, 0.98f, 1f));
             popupBodyText = CreateText("Popup Body", panel, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(24f, 104f), new Vector2(-24f, -108f), string.Empty, 22, FontStyle.Normal, TextAnchor.UpperLeft, new Color(0.95f, 0.97f, 1f, 1f));
@@ -879,7 +900,7 @@ namespace Weave.Presentation
             rect.offsetMax = Vector2.zero;
         }
 
-        private static RectTransform CreatePanel(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, Color color)
+        private static RectTransform CreatePanel(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, Color color, bool raycastTarget = false)
         {
             var rect = CreateRect(name, parent);
             rect.anchorMin = anchorMin;
@@ -888,6 +909,7 @@ namespace Weave.Presentation
             rect.offsetMax = offsetMax;
             var image = rect.gameObject.AddComponent<Image>();
             image.color = color;
+            image.raycastTarget = raycastTarget;
             return rect;
         }
 

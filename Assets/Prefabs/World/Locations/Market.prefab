@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 400000}
   - component: {fileID: 11400000}
   m_Layer: 0
-  m_Name: Location
+  m_Name: Market
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -146,10 +146,10 @@ MonoBehaviour:
   snapInEditor: 1
   locationId: 
   instanceId: 
-  displayName: Location
-  visualLabel: Location
-  locationType: 0
-  locationDefinition: {fileID: 11400000, guid: 797ea8e5925b48fc8d1703afa093cb11, type: 2}
+  displayName: Market
+  visualLabel: Market
+  locationType: 5
+  locationDefinition: {fileID: 11400000, guid: 0d2dc7a874924deb941ebca844b67d05, type: 2}
   useDefaultTasks: 1
   availableTasks: []
   additionalTasks: []
@@ -160,7 +160,7 @@ MonoBehaviour:
   footprintWidth: 1
   footprintHeight: 1
   placementSource: 0
-  authoredSprite: {fileID: 161547241, guid: 18a03e4097846c447baf4ece8c658c5d, type: 3}
+  authoredSprite: {fileID: 1775245116, guid: 18a03e4097846c447baf4ece8c658c5d, type: 3}
   visualRenderer: {fileID: 0}
   labelMesh: {fileID: 0}
   normalColor: {r: 1, g: 1, b: 1, a: 1}

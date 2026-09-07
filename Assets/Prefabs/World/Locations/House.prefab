@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 400000}
   - component: {fileID: 11400000}
   m_Layer: 0
-  m_Name: Location
+  m_Name: House
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -146,8 +146,8 @@ MonoBehaviour:
   snapInEditor: 1
   locationId: 
   instanceId: 
-  displayName: Location
-  visualLabel: Location
+  displayName: House
+  visualLabel: House
   locationType: 0
   locationDefinition: {fileID: 11400000, guid: 797ea8e5925b48fc8d1703afa093cb11, type: 2}
   useDefaultTasks: 1

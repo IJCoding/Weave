@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 48e08ded00780534bb23a3786060e146, type: 3}
+  m_Name: Smithy
+  m_EditorClassIdentifier: Assembly-CSharp::Weave.Data.LocationDefinition
+  locationId: smithy
+  id: smithy
+  displayName: Smithy
+  locationType: 4
+  buildingPrefab: {fileID: 100000, guid: 815434d631e44014b0679de021f2b380, type: 3}
+  defaultTasks: 
+  - {fileID: 11400000, guid: 2dd552364ebe44a8a46ca25a2a2ccc46, type: 2}
+  tags: []
+  footprintWidth: 1
+  footprintHeight: 1
+  mapPosition: {x: 0, y: 0}
