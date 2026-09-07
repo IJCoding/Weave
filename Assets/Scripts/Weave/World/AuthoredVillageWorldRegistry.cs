@@ -373,6 +373,12 @@ namespace Weave.World
             {
                 var originFallback = originLocation != null ? originLocation.TravelAnchorPosition : Vector2.zero;
                 var destinationFallback = destinationLocation != null ? destinationLocation.TravelAnchorPosition : originFallback;
+                if (Vector2.Distance(originFallback, destinationFallback) <= 0.001f)
+                {
+                    var sameFallback = Mathf.Max(sameLocationPreparationSeconds, MinimumDurationSeconds);
+                    return new TravelPlan(new List<Vector2> { destinationFallback }, new List<float> { sameFallback }, sameFallback);
+                }
+
                 var durationFallback = Mathf.Max(Vector2.Distance(originFallback, destinationFallback) * secondsPerDistanceUnit * carryPenaltyMultiplier, MinimumDurationSeconds);
                 return new TravelPlan(new List<Vector2> { originFallback, destinationFallback }, new List<float> { 0f, durationFallback }, durationFallback);
             }
@@ -633,9 +639,9 @@ namespace Weave.World
 
                     location.ConfigureGenerated(instanceId, rule.Definition, selectedCell);
                     generatedRuntimeObjects.Add(go);
-                    for (var x = 0; x < footprintWidth; x++)
+                    for (var x = -rule.MinimumSpacing; x < footprintWidth + rule.MinimumSpacing; x++)
                     {
-                        for (var y = 0; y < footprintHeight; y++)
+                        for (var y = -rule.MinimumSpacing; y < footprintHeight + rule.MinimumSpacing; y++)
                         {
                             occupied.Add(selectedCell + new Vector2Int(x, y));
                         }

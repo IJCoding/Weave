@@ -242,6 +242,10 @@ namespace Weave.World
             if (visualRenderer == null)
             {
                 visualRenderer = GetComponent<SpriteRenderer>();
+                if (visualRenderer == null)
+                {
+                    visualRenderer = gameObject.AddComponent<SpriteRenderer>();
+                }
             }
 
             if (labelMesh == null)
@@ -292,6 +296,15 @@ namespace Weave.World
         {
             if (visualRenderer != null)
             {
+                if (visualRenderer.sprite == null)
+                {
+                    visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
+                    visualRenderer.drawMode = SpriteDrawMode.Sliced;
+                    var grid = Grid;
+                    var cellSize = grid != null ? grid.CellSize : 1f;
+                    visualRenderer.size = new Vector2(cellSize * FootprintWidth, cellSize * FootprintHeight);
+                }
+
                 visualRenderer.color = normalColor;
             }
 

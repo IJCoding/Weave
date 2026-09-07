@@ -58,6 +58,10 @@ namespace Weave.World
             if (visualRenderer == null)
             {
                 visualRenderer = GetComponent<SpriteRenderer>();
+                if (visualRenderer == null)
+                {
+                    visualRenderer = gameObject.AddComponent<SpriteRenderer>();
+                }
             }
         }
 
@@ -65,6 +69,15 @@ namespace Weave.World
         {
             if (visualRenderer != null)
             {
+                if (visualRenderer.sprite == null)
+                {
+                    visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
+                    visualRenderer.drawMode = SpriteDrawMode.Sliced;
+                    var grid = Grid;
+                    var size = grid != null ? grid.CellSize : 1f;
+                    visualRenderer.size = new Vector2(size, size);
+                }
+
                 visualRenderer.color = roadColor;
                 visualRenderer.sortingOrder = -1;
             }
