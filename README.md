@@ -417,6 +417,11 @@ That is enough to prove:
 
 The prototype now supports a shared grid for authored and generated village content.
 
+You can scaffold this setup in a blank scene from the Unity menu:
+
+- `Weave -> Scene Setup -> Create Preset Prototype Village`
+- `Weave -> Scene Setup -> Create Generated Prototype Village`
+
 ## Authoring with the shared village grid
 
 Use `VillageGrid` as the single source of spatial conversion (`WorldToGrid`, `GridToWorld`, snapping).
