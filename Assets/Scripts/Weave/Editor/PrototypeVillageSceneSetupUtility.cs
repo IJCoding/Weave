@@ -204,9 +204,17 @@ namespace Weave.Editor
             location.SetGridPosition(gridPosition);
 
             var locationSerializedObject = new SerializedObject(location);
-            locationSerializedObject.FindProperty("instanceId").stringValue = instanceId;
-            locationSerializedObject.FindProperty("locationId").stringValue = instanceId;
-            locationSerializedObject.FindProperty("isHome").boolValue = isHome;
+            var instanceIdProperty = RequireProperty(locationSerializedObject, "instanceId", nameof(AuthoredVillageLocation));
+            var locationIdProperty = RequireProperty(locationSerializedObject, "locationId", nameof(AuthoredVillageLocation));
+            var isHomeProperty = RequireProperty(locationSerializedObject, "isHome", nameof(AuthoredVillageLocation));
+            if (instanceIdProperty == null || locationIdProperty == null || isHomeProperty == null)
+            {
+                return location;
+            }
+
+            instanceIdProperty.stringValue = instanceId;
+            locationIdProperty.stringValue = instanceId;
+            isHomeProperty.boolValue = isHome;
             locationSerializedObject.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(location);
             return location;
@@ -235,10 +243,22 @@ namespace Weave.Editor
             var talkEvent = LoadAsset<EventDefinition>(talkEventPath);
 
             var serializedNpc = new SerializedObject(npc);
-            serializedNpc.FindProperty("characterDefinition").objectReferenceValue = characterDefinition;
-            serializedNpc.FindProperty("startingLocation").objectReferenceValue = startingLocation;
-            serializedNpc.FindProperty("homeLocation").objectReferenceValue = homeLocation;
-            serializedNpc.FindProperty("talkEvent").objectReferenceValue = talkEvent;
+            var characterProperty = RequireProperty(serializedNpc, "characterDefinition", nameof(AuthoredVillageNpc));
+            var startingLocationProperty = RequireProperty(serializedNpc, "startingLocation", nameof(AuthoredVillageNpc));
+            var homeLocationProperty = RequireProperty(serializedNpc, "homeLocation", nameof(AuthoredVillageNpc));
+            var talkEventProperty = RequireProperty(serializedNpc, "talkEvent", nameof(AuthoredVillageNpc));
+            if (characterProperty == null ||
+                startingLocationProperty == null ||
+                homeLocationProperty == null ||
+                talkEventProperty == null)
+            {
+                return;
+            }
+
+            characterProperty.objectReferenceValue = characterDefinition;
+            startingLocationProperty.objectReferenceValue = startingLocation;
+            homeLocationProperty.objectReferenceValue = homeLocation;
+            talkEventProperty.objectReferenceValue = talkEvent;
             serializedNpc.ApplyModifiedPropertiesWithoutUndo();
 
             npc.SetGridPosition(startingLocation != null ? startingLocation.GridPosition : Vector2Int.zero);
@@ -248,11 +268,25 @@ namespace Weave.Editor
         private static void ConfigureRegistry(AuthoredVillageWorldRegistry registry, VillageGrid villageGrid, VillageBuildMode buildMode)
         {
             var serializedRegistry = new SerializedObject(registry);
-            serializedRegistry.FindProperty("villageGrid").objectReferenceValue = villageGrid;
-            serializedRegistry.FindProperty("buildMode").enumValueIndex = (int)buildMode;
-            serializedRegistry.FindProperty("generationSeed").intValue = 12345;
-            serializedRegistry.FindProperty("generationMin").vector2IntValue = new Vector2Int(-12, -12);
-            serializedRegistry.FindProperty("generationMax").vector2IntValue = new Vector2Int(12, 12);
+            var villageGridProperty = RequireProperty(serializedRegistry, "villageGrid", nameof(AuthoredVillageWorldRegistry));
+            var buildModeProperty = RequireProperty(serializedRegistry, "buildMode", nameof(AuthoredVillageWorldRegistry));
+            var generationSeedProperty = RequireProperty(serializedRegistry, "generationSeed", nameof(AuthoredVillageWorldRegistry));
+            var generationMinProperty = RequireProperty(serializedRegistry, "generationMin", nameof(AuthoredVillageWorldRegistry));
+            var generationMaxProperty = RequireProperty(serializedRegistry, "generationMax", nameof(AuthoredVillageWorldRegistry));
+            if (villageGridProperty == null ||
+                buildModeProperty == null ||
+                generationSeedProperty == null ||
+                generationMinProperty == null ||
+                generationMaxProperty == null)
+            {
+                return;
+            }
+
+            villageGridProperty.objectReferenceValue = villageGrid;
+            buildModeProperty.enumValueIndex = (int)buildMode;
+            generationSeedProperty.intValue = 12345;
+            generationMinProperty.vector2IntValue = new Vector2Int(-12, -12);
+            generationMaxProperty.vector2IntValue = new Vector2Int(12, 12);
             ConfigureGeneratedRules(serializedRegistry, buildMode);
             serializedRegistry.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(registry);
@@ -261,6 +295,12 @@ namespace Weave.Editor
         private static void ConfigureGeneratedRules(SerializedObject serializedRegistry, VillageBuildMode buildMode)
         {
             var rules = serializedRegistry.FindProperty("generatedLocationRules");
+            if (rules == null)
+            {
+                Debug.LogError("Missing serialized field 'generatedLocationRules' on AuthoredVillageWorldRegistry.");
+                return;
+            }
+
             rules.ClearArray();
 
             if (buildMode != VillageBuildMode.Generated)
@@ -285,21 +325,38 @@ namespace Weave.Editor
             var index = rules.arraySize;
             rules.InsertArrayElementAtIndex(index);
             var element = rules.GetArrayElementAtIndex(index);
-            element.FindPropertyRelative("Definition").objectReferenceValue = definition;
-            element.FindPropertyRelative("Count").intValue = Mathf.Max(1, count);
-            element.FindPropertyRelative("MinimumSpacing").intValue = Mathf.Max(0, minimumSpacing);
+            var definitionProperty = RequireProperty(element, "Definition", "GeneratedLocationRule");
+            var countProperty = RequireProperty(element, "Count", "GeneratedLocationRule");
+            var spacingProperty = RequireProperty(element, "MinimumSpacing", "GeneratedLocationRule");
+            if (definitionProperty == null || countProperty == null || spacingProperty == null)
+            {
+                return;
+            }
+
+            definitionProperty.objectReferenceValue = definition;
+            countProperty.intValue = Mathf.Max(1, count);
+            spacingProperty.intValue = Mathf.Max(0, minimumSpacing);
         }
 
         private static void ConfigureScenario(AuthoredVillageScenario scenario, AuthoredVillageWorldRegistry worldRegistry)
         {
             var serializedScenario = new SerializedObject(scenario);
-            serializedScenario.FindProperty("calendarDefinition").objectReferenceValue =
-                LoadAsset<GameCalendarDefinition>("Assets/Data/Prototype/PrototypeCalendar.asset");
-            serializedScenario.FindProperty("controlledCharacter").objectReferenceValue =
-                LoadAsset<CharacterDefinition>("Assets/Data/Prototype/PlayerCharacter.asset");
-            serializedScenario.FindProperty("worldRegistry").objectReferenceValue = worldRegistry;
+            var calendarProperty = RequireProperty(serializedScenario, "calendarDefinition", nameof(AuthoredVillageScenario));
+            var controlledCharacterProperty = RequireProperty(serializedScenario, "controlledCharacter", nameof(AuthoredVillageScenario));
+            var worldRegistryProperty = RequireProperty(serializedScenario, "worldRegistry", nameof(AuthoredVillageScenario));
+            var resourcesProperty = RequireProperty(serializedScenario, "resources", nameof(AuthoredVillageScenario));
+            if (calendarProperty == null ||
+                controlledCharacterProperty == null ||
+                worldRegistryProperty == null ||
+                resourcesProperty == null)
+            {
+                return;
+            }
 
-            var resourcesProperty = serializedScenario.FindProperty("resources");
+            calendarProperty.objectReferenceValue = LoadAsset<GameCalendarDefinition>("Assets/Data/Prototype/PrototypeCalendar.asset");
+            controlledCharacterProperty.objectReferenceValue = LoadAsset<CharacterDefinition>("Assets/Data/Prototype/PlayerCharacter.asset");
+            worldRegistryProperty.objectReferenceValue = worldRegistry;
+
             resourcesProperty.ClearArray();
             AddResource(resourcesProperty, "Assets/Data/Prototype/Goodwill.asset");
             AddResource(resourcesProperty, "Assets/Data/Prototype/Wood.asset");
@@ -326,7 +383,13 @@ namespace Weave.Editor
         private static void ConfigureSession(PrototypeGameSession session, AuthoredVillageWorldRegistry worldRegistry)
         {
             var serializedSession = new SerializedObject(session);
-            serializedSession.FindProperty("authoredWorld").objectReferenceValue = worldRegistry;
+            var authoredWorldProperty = RequireProperty(serializedSession, "authoredWorld", nameof(PrototypeGameSession));
+            if (authoredWorldProperty == null)
+            {
+                return;
+            }
+
+            authoredWorldProperty.objectReferenceValue = worldRegistry;
             serializedSession.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(session);
         }
@@ -430,6 +493,28 @@ namespace Weave.Editor
                 current += new Vector2Int(dx, dy);
                 cells.Add(current);
             }
+        }
+
+        private static SerializedProperty RequireProperty(SerializedObject serializedObject, string propertyName, string typeName)
+        {
+            var property = serializedObject.FindProperty(propertyName);
+            if (property == null)
+            {
+                Debug.LogError($"Missing serialized field '{propertyName}' on {typeName}.");
+            }
+
+            return property;
+        }
+
+        private static SerializedProperty RequireProperty(SerializedProperty serializedProperty, string propertyName, string typeName)
+        {
+            var property = serializedProperty.FindPropertyRelative(propertyName);
+            if (property == null)
+            {
+                Debug.LogError($"Missing serialized field '{propertyName}' on {typeName}.");
+            }
+
+            return property;
         }
     }
 }
