@@ -66,7 +66,9 @@ namespace Weave.World
 
             var current = transform.position;
             var snapped = ResolveWorldFromGridPosition(gridPosition);
-            if ((current - lastSnappedWorldPosition).sqrMagnitude > 0.0001f)
+            var snappedWorldPosition = new Vector3(snapped.x, snapped.y, current.z);
+
+            if (Vector3.Distance(current, lastSnappedWorldPosition) > 0.01f)
             {
                 gridPosition = ResolveCurrentGridPosition();
                 hasAuthoritativeGridPosition = true;
@@ -74,7 +76,7 @@ namespace Weave.World
                 return;
             }
 
-            if ((current - snapped).sqrMagnitude > 0.0001f)
+            if (Vector3.Distance(current, snappedWorldPosition) > 0.01f)
             {
                 SyncTransformFromGrid();
             }

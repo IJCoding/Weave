@@ -67,17 +67,18 @@ namespace Weave.World
 
         private void ApplyVisuals()
         {
+            var grid = Grid;
+            var size = grid != null ? grid.CellSize : 1f;
+
             if (visualRenderer != null)
             {
                 if (visualRenderer.sprite == null)
                 {
                     visualRenderer.sprite = PrototypeSpriteLibrary.GetSquareSprite();
                     visualRenderer.drawMode = SpriteDrawMode.Sliced;
-                    var grid = Grid;
-                    var size = grid != null ? grid.CellSize : 1f;
-                    visualRenderer.size = new Vector2(size, size);
                 }
 
+                visualRenderer.size = new Vector2(size, size);
                 visualRenderer.color = roadColor;
                 visualRenderer.sortingOrder = -1;
             }
@@ -88,8 +89,6 @@ namespace Weave.World
                 collider = gameObject.AddComponent<BoxCollider2D>();
             }
 
-            var grid = Grid;
-            var size = grid != null ? grid.CellSize : 1f;
             collider.size = new Vector2(size, size);
             collider.isTrigger = true;
         }
